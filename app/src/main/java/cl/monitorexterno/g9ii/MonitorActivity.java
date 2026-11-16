@@ -47,7 +47,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class MonitorActivity extends Activity {
     private static final int IMPORT_LUT = 1;
-    private static final String USB_PERMISSION = "cl.monitorexterno.g9ii.monitor.USB_PERMISSION";
+    private static final String USB_PERMISSION = "cl.monitorexterno.g9ii.monitor.v03.USB_PERMISSION";
     private static final int INK = 0xfff1f8f6;
     private static final int MINT = 0xffacf0dc;
     private final StringBuilder diagnostic = new StringBuilder();
@@ -62,7 +62,20 @@ public final class MonitorActivity extends Activity {
     private MonitorImage image;
     private TextView status;
     private TextView notice;
-    private TextView recBadge;
+    private TextView phoneBadge;
+    private TextView cameraBadge;
+    private View cameraBorder;
+    private Button cameraRecord;
+    private boolean touchFocus;
+    private CameraControls.RecordingState cameraState = CameraControls.RecordingState.UNKNOWN;
+    private Boolean requestedRecording;
+    private boolean recordingUnverified;
+    private long recordingRequestAt;
+    private long cameraStartedAt = -1;
+    private long phoneStartedAt = -1;
+    private String phoneRecordingSize = "";
+    private PhoneVideoQuality phoneQuality = PhoneVideoQuality.USB;
+    private final Runnable recordingDisplayTick = this::updateRecordingDisplay;
     private Button connect;
     private Switch recordSwitch;
     private HorizontalScrollView tools;
@@ -99,10 +112,13 @@ public final class MonitorActivity extends Activity {
         window.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         getWindow().setAttributes(window);
         usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
+        int quality = getPreferences(MODE_PRIVATE).getInt("phoneQuality", 0);
+        PhoneVideoQuality[] qualities = PhoneVideoQuality.values();
+        if (quality >= 0 && quality < qualities.length) phoneQuality = qualities[quality];
         buildUi();
         immerse();
         registerReceiver(permissionReceiver, new IntentFilter(USB_PERMISSION), Context.RECEIVER_NOT_EXPORTED);
-        diagnostic.append("Monitor Lumix USB 0.2\n").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
+        diagnostic.append("Monitor Lumix USB 0.3\n").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
                 .append(" | Android ").append(Build.VERSION.RELEASE).append('\n');
         status.setText("USB · Sin cámara");
         showNotice("Conecta la Lumix por USB‑C, selecciona PC(Tether) y toca Conectar.");
@@ -126,7 +142,7 @@ public final class MonitorActivity extends Activity {
         header.addView(status, statusPosition);
 
         recordSwitch = new Switch(this);
-        recordSwitch.setText("Grabar en teléfono");
+        recordSwitch.setText(phoneQualityLabel());
         recordSwitch.setTextSize(13);
         recordSwitch.setTextColor(INK);
         recordSwitch.setSwitchPadding(dp(9));
@@ -144,15 +160,22 @@ public final class MonitorActivity extends Activity {
         recordPosition.setMargins(0, dp(6), dp(14), 0);
         header.addView(recordSwitch, recordPosition);
 
-        recBadge = label(12, Color.WHITE);
-        recBadge.setText("●  REC · TELÉFONO");
-        recBadge.setTypeface(null, Typeface.BOLD);
-        recBadge.setPadding(dp(11), dp(7), dp(11), dp(7));
-        recBadge.setBackground(panel(0xe2a21a31, 15));
-        recBadge.setVisibility(View.GONE);
+        cameraBorder = new View(this);
+        GradientDrawable redBorder = panel(Color.TRANSPARENT, 0);
+        redBorder.setStroke(dp(4), 0xffff354c);
+        cameraBorder.setBackground(redBorder);
+        cameraBorder.setVisibility(View.GONE);
+        cameraBorder.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        root.addView(cameraBorder, new FrameLayout.LayoutParams(-1, -1));
+
+        LinearLayout indicators = new LinearLayout(this);
+        indicators.setOrientation(LinearLayout.VERTICAL);
+        indicators.setGravity(Gravity.CENTER_HORIZONTAL);
         FrameLayout.LayoutParams badgePosition = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        badgePosition.topMargin = dp(12);
-        root.addView(recBadge, badgePosition);
+        badgePosition.topMargin = dp(8);
+        root.addView(indicators, badgePosition);
+        cameraBadge = recordingBadge(indicators, 0xffc31933);
+        phoneBadge = recordingBadge(indicators, 0xff164957);
 
         notice = label(15, INK);
         notice.setGravity(Gravity.CENTER);
@@ -173,6 +196,10 @@ public final class MonitorActivity extends Activity {
         tools.addView(buttons, new FrameLayout.LayoutParams(-2, -2));
         connect = tool(buttons, "Conectar", this::connectOrStop);
         connect.setTextColor(MINT);
+        cameraRecord = tool(buttons, "REC cámara", this::toggleCameraRecording);
+        cameraRecord.setTextColor(0xffff8d99);
+        cameraRecord.setEnabled(false);
+        tool(buttons, "Cámara", this::cameraMenu);
         tool(buttons, "Vista", this::viewMenu);
         tool(buttons, "Foco", this::focusMenu);
         tool(buttons, "Exposición", this::exposureMenu);
@@ -185,6 +212,10 @@ public final class MonitorActivity extends Activity {
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             android.graphics.Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
             header.setPadding(cutout.left, cutout.top, cutout.right, 0);
+            if (badgePosition.topMargin != cutout.top + dp(8)) {
+                badgePosition.topMargin = cutout.top + dp(8);
+                indicators.setLayoutParams(badgePosition);
+            }
             FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) header.getLayoutParams();
             int height = dp(56) + cutout.top;
             if (params.height != height) {
@@ -207,7 +238,16 @@ public final class MonitorActivity extends Activity {
         });
         GestureDetector taps = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onDown(MotionEvent event) { return true; }
-            @Override public boolean onSingleTapConfirmed(MotionEvent event) { return image.performClick(); }
+            @Override public boolean onSingleTapConfirmed(MotionEvent event) {
+                if (touchFocus && frameSeen && image.isPictureAt(event.getX(), event.getY())) {
+                    autofocus();
+                    return true;
+                }
+                return image.performClick();
+            }
+            @Override public void onLongPress(MotionEvent event) {
+                if (touchFocus) image.performLongClick();
+            }
             @Override public boolean onDoubleTap(MotionEvent event) {
                 if (image.zoom > 1) image.resetZoom();
                 else image.zoomAt(2, event.getX(), event.getY());
@@ -221,6 +261,11 @@ public final class MonitorActivity extends Activity {
         });
         image.setOnClickListener(view -> {
             if (frameSeen) controls(!showingControls);
+        });
+        image.setOnLongClickListener(view -> {
+            if (!touchFocus || !frameSeen) return false;
+            controls(!showingControls);
+            return true;
         });
         image.setOnTouchListener((view, event) -> {
             scale.onTouchEvent(event);
@@ -247,6 +292,18 @@ public final class MonitorActivity extends Activity {
             action.run();
         });
         return button;
+    }
+
+    private TextView recordingBadge(LinearLayout group, int color) {
+        TextView badge = label(13, Color.WHITE);
+        badge.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        badge.setPadding(dp(12), dp(6), dp(12), dp(6));
+        badge.setBackground(panel(color, 10));
+        badge.setVisibility(View.GONE);
+        LinearLayout.LayoutParams item = new LinearLayout.LayoutParams(-2, -2);
+        item.bottomMargin = dp(4);
+        group.addView(badge, item);
+        return badge;
     }
 
     private TextView label(int size, int color) {
@@ -458,7 +515,7 @@ public final class MonitorActivity extends Activity {
     private void moreMenu() {
         menu("Monitor Lumix", new String[]{"Calidad USB", "Corrección anamórfica",
                 marked("Voltear horizontal", image.flipHorizontal), marked("Voltear vertical", image.flipVertical),
-                "Copiar diagnóstico"}, index -> {
+                "Grabación en el teléfono", "Copiar diagnóstico"}, index -> {
             switch (index) {
                 case 0: quality(); break;
                 case 1:
@@ -470,11 +527,207 @@ public final class MonitorActivity extends Activity {
                     break;
                 case 2: image.flipHorizontal = !image.flipHorizontal; break;
                 case 3: image.flipVertical = !image.flipVertical; break;
-                case 4: copyDiagnostic(); break;
+                case 4: phoneQualityMenu(); break;
+                case 5: copyDiagnostic(); break;
                 default: break;
             }
             image.invalidate();
         });
+    }
+
+    private void phoneQualityMenu() {
+        if (recorder != null) {
+            toast("Termina el clip antes de cambiar su resolución.");
+            return;
+        }
+        PhoneVideoQuality[] choices = PhoneVideoQuality.values();
+        String[] labels = new String[choices.length];
+        for (int i = 0; i < choices.length; i++) {
+            boolean supported = choices[i] == PhoneVideoQuality.USB || choices[i].profile(640, 360) != null;
+            labels[i] = marked(choices[i].label, choices[i] == phoneQuality)
+                    + (supported ? "" : " · sin codificador");
+        }
+        menu("Resolución del video en el teléfono", labels, index -> {
+            PhoneVideoQuality selected = choices[index];
+            if (selected != PhoneVideoQuality.USB && selected.profile(640, 360) == null) {
+                toast("El teléfono no anuncia un codificador compatible con esa resolución a 30 fps.");
+                return;
+            }
+            phoneQuality = selected;
+            getPreferences(MODE_PRIVATE).edit().putInt("phoneQuality", selected.ordinal()).apply();
+            recordSwitch.setText(phoneQualityLabel());
+            if (selected != PhoneVideoQuality.USB) {
+                toast("El MP4 se ajustará a " + selected.label + ". El detalle depende de la señal USB.");
+            }
+        });
+    }
+
+    private String phoneQualityLabel() {
+        return phoneQuality == PhoneVideoQuality.UHD ? "Grabar en 4K"
+                : phoneQuality == PhoneVideoQuality.FULL_HD ? "Grabar en Full HD" : "Grabar en teléfono";
+    }
+
+    private void cameraMenu() {
+        CameraControls.Setting[] settings = CameraControls.Setting.values();
+        String[] names = new String[settings.length + 6];
+        for (int i = 0; i < settings.length; i++) names[i] = settings[i].name;
+        names[settings.length] = marked("AF al tocar · área activa", touchFocus);
+        names[settings.length + 1] = "AF ahora · área activa";
+        names[settings.length + 2] = "Disparar foto";
+        names[settings.length + 3] = "Video · iniciar o detener";
+        names[settings.length + 4] = "LUT internas de la cámara";
+        names[settings.length + 5] = "Consultar capacidades USB";
+        menu("Cámara Lumix", names, index -> {
+            if (index == settings.length + 4) {
+                new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
+                        .setTitle("LUT internas de la Lumix")
+                        .setMessage("La lista interna se consulta en la cámara, en Biblioteca LUT o REAL TIME LUT. "
+                                + "El protocolo USB disponible todavía no permite leer los nombres ni seleccionar una LUT interna. "
+                                + "Las LUT importadas en Color se aplican a la previsualización del teléfono.")
+                        .setPositiveButton("Cerrar", null).show();
+                return;
+            }
+            if (preview == null || !frameSeen) {
+                toast("Conecta la Lumix y espera la imagen.");
+                return;
+            }
+            if (index < settings.length) {
+                if (preview.cameraChoices(settings[index])) toast("Consultando " + settings[index].name + ".");
+                else queueBusy();
+                return;
+            }
+            switch (index - settings.length) {
+                case 0:
+                    touchFocus = !touchFocus;
+                    image.setContentDescription(touchFocus
+                            ? "Video. Toca para AF en el área activa. Mantén pulsado para mostrar los controles."
+                            : "Imagen del monitor, toca para mostrar los controles");
+                    toast(touchFocus ? "Toca el video para activar el AF en el área de la Lumix. Mantén pulsado para los controles."
+                            : "Toque para mostrar los controles.");
+                    break;
+                case 1: autofocus(); break;
+                case 2:
+                    if (cameraState == CameraControls.RecordingState.RECORDING) {
+                        toast("Detén el video de la cámara antes de disparar una foto.");
+                    } else if (!preview.shutter()) queueBusy();
+                    break;
+                case 3: cameraRecordingMenu(); break;
+                case 5: if (!preview.inventory()) queueBusy(); break;
+                default: break;
+            }
+        });
+    }
+
+    private void showCameraChoices(CameraControls.Setting setting, CameraControls.Choices choices) {
+        if (choices == null || choices.values.length == 0) {
+            toast("La Lumix no devolvió valores ajustables de " + setting.name + " en este modo.");
+            return;
+        }
+        String[] names = new String[choices.values.length];
+        for (int i = 0; i < names.length; i++) {
+            int value = choices.values[i];
+            names[i] = marked(setting.label(value), value == choices.current);
+        }
+        menu(setting.name + " · " + setting.label(choices.current), names, index -> {
+            if (preview == null || !frameSeen) return;
+            if (!preview.changeSetting(setting, choices.values[index])) queueBusy();
+        });
+    }
+
+    private void autofocus() {
+        if (preview != null && frameSeen && !preview.autoFocus()) queueBusy();
+    }
+
+    private void queueBusy() {
+        toast("La cámara tiene órdenes pendientes. Intenta de nuevo en un momento.");
+    }
+
+    private void toggleCameraRecording() {
+        if (cameraState == CameraControls.RecordingState.RECORDING) sendMovieCommand(false);
+        else if (cameraState == CameraControls.RecordingState.READY && !recordingUnverified) sendMovieCommand(true);
+        else cameraRecordingMenu();
+    }
+
+    private void cameraRecordingMenu() {
+        menu("Grabación en la Lumix", new String[]{"Iniciar grabación", "Detener grabación", "Consultar estado REC"}, index -> {
+            if (index == 2 && preview != null && frameSeen) preview.refreshRecordingState();
+            else if (index < 2) sendMovieCommand(index == 0);
+        });
+    }
+
+    private void sendMovieCommand(boolean start) {
+        if (preview == null || !frameSeen) return;
+        if (requestedRecording != null) {
+            toast("Esperando la respuesta de la Lumix.");
+            return;
+        }
+        if (!preview.movie(start)) {
+            queueBusy();
+            return;
+        }
+        requestedRecording = start;
+        recordingUnverified = false;
+        recordingRequestAt = SystemClock.elapsedRealtime();
+        updateRecordingDisplay();
+    }
+
+    private void setCameraState(CameraControls.RecordingState state) {
+        cameraState = state;
+        if (state == CameraControls.RecordingState.RECORDING) {
+            if (cameraStartedAt < 0) cameraStartedAt = SystemClock.elapsedRealtime();
+        } else {
+            cameraStartedAt = -1;
+        }
+        if (requestedRecording != null && (state == CameraControls.RecordingState.RECORDING && requestedRecording
+                || state == CameraControls.RecordingState.READY && !requestedRecording)) {
+            requestedRecording = null;
+        }
+        if (state == CameraControls.RecordingState.RECORDING || state == CameraControls.RecordingState.READY) {
+            recordingUnverified = false;
+        }
+        updateRecordingDisplay();
+    }
+
+    private void handleRecordingReply(boolean start, int response) {
+        log("Orden " + (start ? "REC" : "STOP") + " de cámara: " + PtpConnection.hex(response));
+        if (response != PtpConnection.OK) {
+            requestedRecording = null;
+            recordingUnverified = false;
+            toast("La Lumix rechazó la orden de video (" + PtpConnection.hex(response) + ").");
+        } else {
+            recordingRequestAt = SystemClock.elapsedRealtime();
+        }
+        updateRecordingDisplay();
+    }
+
+    private void updateRecordingDisplay() {
+        ui.removeCallbacks(recordingDisplayTick);
+        long now = SystemClock.elapsedRealtime();
+        if (requestedRecording != null && now - recordingRequestAt >= 4500) {
+            recordingUnverified = true;
+            requestedRecording = null;
+            log("REC de cámara sin confirmación por USB.");
+        }
+        boolean cameraActive = cameraStartedAt >= 0;
+        boolean phoneActive = phoneStartedAt >= 0;
+        boolean pending = requestedRecording != null;
+        cameraBorder.setVisibility(cameraActive ? View.VISIBLE : View.GONE);
+        cameraBadge.setVisibility(cameraActive || pending || recordingUnverified ? View.VISIBLE : View.GONE);
+        if (cameraActive || pending || recordingUnverified) {
+            cameraBadge.setBackground(panel(cameraActive ? 0xffc31933 : 0xff604000, 10));
+            cameraBadge.setText(cameraActive ? "● REC CÁMARA  " + clock(now - cameraStartedAt)
+                    : pending ? "CÁMARA · esperando confirmación" : "CÁMARA · estado REC sin confirmar");
+        }
+        phoneBadge.setVisibility(phoneActive ? View.VISIBLE : View.GONE);
+        if (phoneActive) phoneBadge.setText("● TELÉFONO  " + clock(now - phoneStartedAt) + "  " + phoneRecordingSize);
+        cameraRecord.setText(cameraActive ? "Detener cámara" : "REC cámara");
+        cameraRecord.setEnabled(frameSeen && !pending);
+        if (cameraActive || pending || phoneActive) ui.postDelayed(recordingDisplayTick, 250);
+    }
+
+    private static String clock(long elapsed) {
+        long seconds = Math.max(0, elapsed) / 1000;
+        return String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60);
     }
 
     private void quality() {
@@ -587,11 +840,38 @@ public final class MonitorActivity extends Activity {
                 ui.post(() -> { if (!destroyed) toast(message); });
             }
 
+            @Override public void onRecordingState(CameraControls.RecordingState state, String detail) {
+                ui.post(() -> {
+                    if (destroyed) return;
+                    log(detail);
+                    setCameraState(state);
+                });
+            }
+
+            @Override public void onRecordingCommand(boolean start, int response) {
+                ui.post(() -> { if (!destroyed) handleRecordingReply(start, response); });
+            }
+
+            @Override public void onCameraChoices(CameraControls.Setting setting, CameraControls.Choices choices) {
+                ui.post(() -> { if (!destroyed && frameSeen) showCameraChoices(setting, choices); });
+            }
+
+            @Override public void onCameraDiagnostic(String detail) {
+                ui.post(() -> {
+                    if (destroyed) return;
+                    log(detail);
+                    toast("Capacidades consultadas. Abre Más → Copiar diagnóstico para ver las respuestas.");
+                });
+            }
+
             @Override public void onFinished(String error) {
                 ui.post(() -> {
                     preview = null;
                     if (destroyed) return;
                     frameSeen = false;
+                    requestedRecording = null;
+                    recordingUnverified = false;
+                    setCameraState(CameraControls.RecordingState.UNKNOWN);
                     newest.set(null);
                     image.show(null, null, VideoScopes.Mode.OFF);
                     stopRecorder();
@@ -631,6 +911,7 @@ public final class MonitorActivity extends Activity {
                 frameSeen = true;
                 notice.setVisibility(View.GONE);
                 if (recorder == null) recordSwitch.setEnabled(true);
+                updateRecordingDisplay();
                 ui.postDelayed(hideControls, 4000);
             }
         } finally {
@@ -646,12 +927,21 @@ public final class MonitorActivity extends Activity {
             setRecordingSwitch(false);
             return;
         }
+        PhoneVideoQuality.Profile profile = phoneQuality.profile(sourceWidth, sourceHeight);
+        if (profile == null) {
+            setRecordingSwitch(false);
+            toast("No se encontró un codificador compatible con la resolución seleccionada.");
+            return;
+        }
         recordSwitch.setEnabled(false);
-        recorder = new PhoneRecorder(this, sourceWidth, sourceHeight, new PhoneRecorder.Listener() {
+        phoneRecordingSize = profile.dimensions();
+        recorder = new PhoneRecorder(this, profile, new PhoneRecorder.Listener() {
             @Override public void onRecording() {
                 ui.post(() -> {
                     if (destroyed || !frameSeen || !recordSwitch.isChecked()) return;
-                    recBadge.setVisibility(View.VISIBLE);
+                    phoneStartedAt = SystemClock.elapsedRealtime();
+                    log("Grabación en teléfono " + phoneRecordingSize + " · señal " + sourceWidth + " × " + sourceHeight);
+                    updateRecordingDisplay();
                     recordSwitch.setEnabled(true);
                 });
             }
@@ -659,7 +949,8 @@ public final class MonitorActivity extends Activity {
                 ui.post(() -> {
                     recorder = null;
                     if (destroyed) return;
-                    recBadge.setVisibility(View.GONE);
+                    phoneStartedAt = -1;
+                    updateRecordingDisplay();
                     setRecordingSwitch(false);
                     recordSwitch.setEnabled(frameSeen);
                     toast(message);
@@ -701,7 +992,8 @@ public final class MonitorActivity extends Activity {
 
     private void copyDiagnostic() {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        clipboard.setPrimaryClip(ClipData.newPlainText("Diagnóstico Monitor Lumix", diagnostic.toString()));
+        clipboard.setPrimaryClip(ClipData.newPlainText("Diagnóstico Monitor Lumix",
+                status.getText() + "\n" + diagnostic));
         Toast.makeText(this, "Diagnóstico copiado", Toast.LENGTH_SHORT).show();
     }
 
@@ -715,6 +1007,7 @@ public final class MonitorActivity extends Activity {
     protected void onDestroy() {
         destroyed = true;
         ui.removeCallbacks(hideControls);
+        ui.removeCallbacks(recordingDisplayTick);
         if (preview != null) preview.stop();
         stopRecorder();
         unregisterReceiver(permissionReceiver);

@@ -2,7 +2,7 @@
 
 Monitor Android para la Panasonic Lumix G9 II por USB‑C directo. La prueba 0.1
 confirmó 640 × 360 y 30 fps recibidos con firmware 2.7 y un Galaxy S24 Ultra
-(SM-S928B) en Android 17. La versión 0.2 se instala aparte para poder compararlas.
+(SM-S928B) en Android 17. La versión 0.3 se instala aparte para poder comparar con las anteriores.
 
 ## Usar el monitor
 
@@ -37,12 +37,40 @@ El resultado de exposición se debe contrastar con la medición de la cámara en
 
 El interruptor **Grabar en teléfono** arranca apagado y se habilita al recibir video.
 Enciéndelo para iniciar un clip y apágalo para guardarlo. El indicador rojo
-**REC · TELÉFONO** permanece visible al ocultar los controles. El MP4 H.264 se guarda
+**REC · TELÉFONO** permanece visible al ocultar los controles. El MP4 AVC o HEVC se guarda
 en la carpeta `Movies/Monitor Lumix` y aparece en la galería del teléfono. Desconectar
 desde la app, quitar el cable o salir al fondo finaliza la grabación si el archivo se
-puede cerrar. La grabación usa los fotogramas que llegan por USB, con un techo de
-1920 × 1080 y una tasa nominal de 30 fps. Se guarda sin audio, gráficos, LUT ni
+puede cerrar. En **Más → Grabación en el teléfono** elige el tamaño según la señal USB, Full HD
+o 4K UHD (3840 × 2160, cuando el codificador del teléfono lo permite). La tasa
+configurada es 30 fps. Si la señal USB es menor, el resultado se amplía para
+llenar la mayor área posible del MP4 conservando el aspecto. La ampliación
+mantiene el detalle original. Se guarda sin audio, gráficos, LUT ni
 recorte de pantalla. El interruptor no acciona la grabación interna de la Lumix.
+
+## Controles de cámara por USB
+
+- **Cámara** consulta los valores que la Lumix anuncia para ISO, diafragma,
+  obturación, compensación EV, balance de blancos y modo de enfoque. La app
+  escribe únicamente valores de esa lista. La disponibilidad depende del modo
+  y del lente.
+- **AF ahora** envía una orden de enfoque puntual en el área activa de la
+  Lumix. **AF al tocar** permite enviar la misma orden tocando el video.
+  Mantén el dedo pulsado para mostrar u ocultar los controles. El toque
+  todavía no desplaza el área AF de la cámara.
+- **REC cámara** inicia o detiene la grabación interna. La app consulta el
+  estado por USB, también cuando la grabación se inicia desde el cuerpo.
+  El marco rojo se muestra cuando la cámara confirma REC. El contador mide
+  tiempo desde la primera confirmación observada. La app muestra un aviso si
+  la cámara acepta la orden y no envía un estado que la confirme.
+- **Disparar foto** envía la orden de obturador a la Lumix.
+- **Consultar capacidades USB** registra respuestas de identificación,
+  área AF y estilo de foto. La selección y los nombres de la **Biblioteca LUT**
+  interna siguen disponibles en la cámara o en LUMIX Lab. Las LUT en **Color**
+  corresponden a la previsualización local.
+
+Los comandos de cámara están pendientes de verificación con un cuerpo físico.
+En el emulador se prueban la interpretación de estados, la serialización de
+los ajustes, las herramientas del monitor y la creación de MP4.
 
 ## Señal de la Lumix G9 II
 

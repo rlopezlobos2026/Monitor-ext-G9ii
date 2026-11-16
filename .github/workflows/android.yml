@@ -24,11 +24,11 @@ jobs:
       - name: Compilar y revisar la APK
         run: gradle --no-daemon :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Preparar descargable
-        run: cp app/build/outputs/apk/debug/app-debug.apk Monitor_Lumix_USB_0.2.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Monitor_Lumix_USB_0.3.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Monitor_Lumix_USB
-          path: Monitor_Lumix_USB_0.2.apk
+          path: Monitor_Lumix_USB_0.3.apk
           if-no-files-found: error
       - name: Habilitar KVM para el emulador
         run: |
@@ -46,5 +46,5 @@ jobs:
           script: |
             adb install app/build/outputs/apk/debug/app-debug.apk
             adb install app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-            adb shell am instrument -w cl.monitorexterno.g9ii.monitor.test/cl.monitorexterno.g9ii.MonitorSmoke | tee monitor-smoke.log
+            adb shell am instrument -w cl.monitorexterno.g9ii.monitor.v03.test/cl.monitorexterno.g9ii.MonitorSmoke | tee monitor-smoke.log
             grep -F MONITOR_SMOKE_OK monitor-smoke.log

@@ -1,9 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    android:versionCode="2"
-    android:versionName="0.2">
+    android:versionCode="3"
+    android:versionName="0.3">
     <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="34" />
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
-    <application android:label="Monitor Lumix G9 II" android:allowBackup="false"
+    <application android:label="Monitor Lumix G9 II 0.3" android:allowBackup="false"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name="cl.monitorexterno.g9ii.MonitorActivity" android:exported="true"
             android:screenOrientation="sensorLandscape">

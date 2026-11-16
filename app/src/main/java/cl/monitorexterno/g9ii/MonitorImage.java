@@ -137,6 +137,10 @@ final class MonitorImage extends View {
 
     boolean hasLut() { return lut != null; }
 
+    boolean isPictureAt(float x, float y) {
+        return image != null && destination.contains(x, y);
+    }
+
     void resetZoom() {
         zoom = 1;
         panX = 0;

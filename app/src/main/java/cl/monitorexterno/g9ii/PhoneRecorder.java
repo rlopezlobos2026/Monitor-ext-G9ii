@@ -45,16 +45,13 @@ final class PhoneRecorder {
     private int frameCount;
     private boolean started;
 
-    PhoneRecorder(Context context, int width, int height, Listener listener) {
+    PhoneRecorder(Context context, PhoneVideoQuality.Profile profile, Listener listener) {
         this.context = context.getApplicationContext();
         this.resolver = this.context.getContentResolver();
         this.listener = listener;
         thread.start();
         handler = new Handler(thread.getLooper());
-        float ratio = Math.min(1f, Math.min(1920f / width, 1080f / height));
-        int recordWidth = Math.max(2, Math.round(width * ratio / 2) * 2);
-        int recordHeight = Math.max(2, Math.round(height * ratio / 2) * 2);
-        handler.post(() -> begin(recordWidth, recordHeight));
+        handler.post(() -> begin(profile));
     }
 
     void submit(Bitmap image, long timestamp) {
@@ -72,7 +69,7 @@ final class PhoneRecorder {
         if (accepting && drawing.compareAndSet(false, true)) handler.post(this::encodeNewest);
     }
 
-    private void begin(int width, int height) {
+    private void begin(PhoneVideoQuality.Profile profile) {
         if (!accepting) return;
         try {
             filename = "Lumix_" + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.ROOT).format(new Date()) + ".mp4";
@@ -90,14 +87,14 @@ final class PhoneRecorder {
             recorder.setOnErrorListener((source, error, detail) -> fail("Grabación interrumpida (" + error + ")."));
             recorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-            recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-            recorder.setVideoSize(width, height);
-            recorder.setVideoFrameRate(30);
-            recorder.setVideoEncodingBitRate(Math.max(1_500_000, width * height * 6));
+            recorder.setVideoEncoder(profile.codec);
+            recorder.setVideoSize(profile.width, profile.height);
+            recorder.setVideoFrameRate(PhoneVideoQuality.FRAME_RATE);
+            recorder.setVideoEncodingBitRate(profile.bitrate);
             recorder.setOutputFile(file.getFileDescriptor());
             recorder.prepare();
             input = recorder.getSurface();
-            renderer = new RecorderSurface(input, width, height);
+            renderer = new RecorderSurface(input, profile.width, profile.height);
             recorder.start();
             started = true;
             if (accepting) listener.onRecording();

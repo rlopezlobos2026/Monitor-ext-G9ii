@@ -32,6 +32,7 @@ public final class MonitorSmoke extends Instrumentation {
         try {
             new RuntimeShader(MonitorImage.EFFECTS);
             testLutAndPtpFormats();
+            testCameraControls();
             testRecording();
             output.putString("stream", "\nMONITOR_SMOKE_OK\n");
             finish(Activity.RESULT_OK, output);
@@ -53,11 +54,32 @@ public final class MonitorSmoke extends Instrumentation {
         require(UsbVideoFormat.parseList(choices.array()).contains(original), "Formatos PTP anunciados");
     }
 
+    private void testCameraControls() {
+        byte[] recorded = CameraControls.scalarPayload(0x12000013, 2, 1);
+        require(CameraControls.decodeRecording(CameraControls.scalar(recorded))
+                == CameraControls.RecordingState.RECORDING, "Estado REC de la cámara");
+        require(CameraControls.decodeRecording(CameraControls.scalar(new byte[6]))
+                == CameraControls.RecordingState.UNKNOWN, "Respuesta REC incompleta");
+        ByteBuffer limits = ByteBuffer.allocate(52).order(ByteOrder.LITTLE_ENDIAN);
+        limits.putInt(4, 7).position(36);
+        limits.putInt(400).putInt(2).putInt(400).putInt(800);
+        CameraControls.Choices choices = CameraControls.parseChoices(limits.array(), 4);
+        require(choices != null && choices.current == 400 && choices.permits(800) && !choices.permits(200),
+                "Opciones ISO anunciadas por la cámara");
+        ByteBuffer payload = ByteBuffer.wrap(CameraControls.scalarPayload(0x02000041, 2, 28))
+                .order(ByteOrder.LITTLE_ENDIAN);
+        require(payload.getInt() == 0x02000041 && payload.getInt() == 2 && payload.getShort() == 28,
+                "Cambio a diafragma f/2.8");
+        require(PhoneVideoQuality.UHD.width == 3840 && PhoneVideoQuality.UHD.height == 2160,
+                "Tamaño de salida UHD");
+    }
+
     private void testRecording() throws Exception {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch closed = new CountDownLatch(1);
         AtomicReference<String> outcome = new AtomicReference<>();
-        PhoneRecorder recorder = new PhoneRecorder(getTargetContext(), 640, 360, new PhoneRecorder.Listener() {
+        PhoneVideoQuality.Profile profile = PhoneVideoQuality.USB.profile(640, 360);
+        PhoneRecorder recorder = new PhoneRecorder(getTargetContext(), profile, new PhoneRecorder.Listener() {
             @Override public void onRecording() { started.countDown(); }
             @Override public void onClosed(String result) {
                 outcome.set(result);
