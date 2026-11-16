@@ -8,9 +8,9 @@ confirmó 640 × 360 y 30 fps recibidos con firmware 2.7 y un Galaxy S24 Ultra
 
 1. Enciende la Lumix, conecta un cable USB‑C de datos y selecciona `PC(Tether)`.
 2. Abre **Monitor Lumix G9 II**, toca **Conectar** y concede el acceso USB.
-3. **AF táctil** está en la barra superior y arranca activo. Toca el video para
-   enviar la orden de enfoque y mantén el dedo pulsado para ocultar o mostrar los
-   controles. **Nivel** muestra la inclinación del teléfono. Si está montado
+3. **AF área** está en la barra superior y arranca activo. Toca el video para
+   accionar el enfoque en el área ya seleccionada en la Lumix. Mantén el dedo
+   pulsado para ocultar o mostrar los controles. **Nivel** muestra la inclinación del teléfono. Si está montado
    alineado con la Lumix, sirve para nivelar el conjunto.
    La banda inferior deja a mano ISO, obturación, diafragma, EV, balance WB y Kelvin.
    Los ajustes numéricos abren un deslizador en la misma pantalla, con botones
@@ -18,9 +18,10 @@ confirmó 640 × 360 y 30 fps recibidos con firmware 2.7 y un Galaxy S24 Ultra
 4. En **Vista**, elige **Ajustar** para ver toda la imagen o **Llenar** para aprovechar
    todo el ancho recortando parte del encuadre. También hay vista píxel a píxel,
    doble toque para ampliar, zoom con dos dedos y arrastre para inspeccionar el encuadre.
-5. Para explorar tamaños mayores, entra en **Más → Calidad USB**. El menú muestra las
-   opciones que anuncia la cámara y sus frecuencias nominales. La barra indica la
-   resolución y los fps realmente recibidos. La conexión arranca en el modo normal
+5. En **Más → Vista previa USB**, el menú muestra los modos que anuncia la cámara
+   y sus frecuencias nominales. La barra indica el tamaño y los fps realmente
+   recibidos. **Más → Copiar diagnóstico** incluye la respuesta al cambio, el
+   modo leído de la cámara y el tamaño del video recibido después de la selección. La conexión arranca en el modo normal
    de la cámara en cada sesión. Al desconectar desde la app, se intenta restaurar
    la calidad inicial si se obtuvo al consultar el dispositivo.
 
@@ -63,9 +64,9 @@ de la imagen. El interruptor no acciona la grabación interna de la Lumix.
   escribe únicamente valores de esa lista. La disponibilidad depende del modo
   y del lente.
 - **AF ahora** envía una orden de enfoque puntual en el área activa de la
-  Lumix. **AF táctil** permite enviar la misma orden tocando el video. El
-  recuadro sigue el punto tocado y se ilumina si la cámara acepta la orden.
-  El comando disponible enfoca usando el área activa seleccionada en la Lumix.
+  Lumix. **AF área** permite enviar la misma orden tocando el video.
+  La marca amarilla indica el toque que disparó la solicitud. La posición del
+  área se selecciona en la Lumix.
   El menú incluye pasos de
   enfoque manual, que la cámara puede aceptar cuando está en MF.
 - **REC cámara** inicia o detiene la grabación interna. La app consulta el

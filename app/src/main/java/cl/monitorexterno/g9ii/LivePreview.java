@@ -12,6 +12,7 @@ import android.os.SystemClock;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -24,6 +25,7 @@ final class LivePreview implements Runnable {
         void onPreviewPause(String reason);
         void onMovieQuality(String detail);
         void onFormats(List<UsbVideoFormat> formats, UsbVideoFormat current);
+        void onUsbDiagnostic(String detail);
         void onNotice(String message);
         void onRecordingState(CameraControls.RecordingState state, String diagnostic);
         void onRecordingCommand(boolean start, int response);
@@ -75,6 +77,7 @@ final class LivePreview implements Runnable {
     private List<UsbVideoFormat> availableFormats = Collections.emptyList();
     private UsbVideoFormat originalFormat;
     private UsbVideoFormat activeFormat;
+    private boolean formatChanged;
     private final UsbManager manager;
     private final UsbDevice device;
     private final Listener listener;
@@ -222,6 +225,8 @@ final class LivePreview implements Runnable {
             if (!claimed) {
                 throw new IOException("Android no pudo tomar la interfaz PTP.");
             }
+            listener.onUsbDiagnostic("USB bulk · paquete máximo IN " + input.getMaxPacketSize()
+                    + " bytes · OUT " + output.getMaxPacketSize() + " bytes");
             listener.onPhase("Abriendo sesión PTP por USB.");
             requireOk("Abrir sesión PTP", ptp.command(OPEN_SESSION, 1).code);
             sessionOpen = true;
@@ -239,7 +244,7 @@ final class LivePreview implements Runnable {
                 try {
                     if (previewOn) {
                         ptp.command(LIVE_VIEW, STOP_LIVE_VIEW);
-                        if (originalFormat != null && !originalFormat.equals(activeFormat)) {
+                        if (originalFormat != null && (formatChanged || !originalFormat.equals(activeFormat))) {
                             ptp.commandWithData(SET_FORMAT, originalFormat.toPayload(), UsbVideoFormat.CURRENT);
                         }
                     }
@@ -298,6 +303,7 @@ final class LivePreview implements Runnable {
         boolean paused = false;
         long nextRecovery = lastFrame + 5000;
         int recoveries = 0;
+        boolean measureFormat = false;
         while (!stopped) {
             CameraRequest cameraRequest = cameraRequests.poll();
             if (cameraRequest != null) cameraRequest.run(ptp);
@@ -315,6 +321,7 @@ final class LivePreview implements Runnable {
             UsbVideoFormat requested = formatRequested.getAndSet(null);
             if (requested != null && availableFormats.contains(requested)) {
                 applyFormat(ptp, requested);
+                measureFormat = true;
                 lastFrame = SystemClock.elapsedRealtime();
                 measureStart = lastFrame;
                 nextRecovery = lastFrame + 5000;
@@ -340,6 +347,14 @@ final class LivePreview implements Runnable {
                 frameCount++;
                 if (now - measureStart >= 1000) {
                     fps = frameCount * 1000.0 / (now - measureStart);
+                    if (measureFormat) {
+                        listener.onUsbDiagnostic(String.format(Locale.ROOT,
+                                "Vista previa USB recibida tras la selección · %d × %d · %.1f fps",
+                                frame.getWidth(), frame.getHeight(), fps));
+                        measureFormat = false;
+                        UsbVideoFormat confirmed = readCurrentFormat(ptp);
+                        if (confirmed != null) activeFormat = confirmed;
+                    }
                     measureStart = now;
                     frameCount = 0;
                 }
@@ -439,27 +454,43 @@ final class LivePreview implements Runnable {
         PtpConnection.Reply modes = ptp.command(GET_FORMATS, UsbVideoFormat.LIST);
         availableFormats = modes.panasonicCode() == PtpConnection.OK
                 ? UsbVideoFormat.parseList(modes.data) : Collections.emptyList();
+        listener.onUsbDiagnostic("Vista previa USB · lista " + PtpConnection.hex(modes.panasonicCode())
+                + " · " + (modes.data == null ? 0 : modes.data.length) + " bytes · "
+                + availableFormats.size() + " modos anunciados");
+        for (UsbVideoFormat mode : availableFormats) {
+            listener.onUsbDiagnostic("  " + mode.label() + " · parámetro " + mode.cameraParameter);
+        }
         if (!availableFormats.isEmpty()) {
-            PtpConnection.Reply current = ptp.command(GET_FORMATS, UsbVideoFormat.CURRENT);
-            if (current.panasonicCode() == PtpConnection.OK) {
-                activeFormat = UsbVideoFormat.parseCurrent(current.data);
-                if (originalFormat == null) originalFormat = activeFormat;
+            UsbVideoFormat current = readCurrentFormat(ptp);
+            if (current != null) {
+                activeFormat = current;
+                if (originalFormat == null) originalFormat = current;
             }
         }
         listener.onFormats(availableFormats, activeFormat);
     }
 
+    private UsbVideoFormat readCurrentFormat(PtpConnection ptp) throws IOException {
+        PtpConnection.Reply reply = ptp.command(GET_FORMATS, UsbVideoFormat.CURRENT);
+        int response = reply.panasonicCode();
+        UsbVideoFormat current = response == PtpConnection.OK ? UsbVideoFormat.parseCurrent(reply.data) : null;
+        listener.onUsbDiagnostic("Vista previa USB · lectura del modo activo " + PtpConnection.hex(response)
+                + " · " + (current == null ? "sin modo válido" : current.label() + " · parámetro " + current.cameraParameter));
+        return current;
+    }
+
     private void applyFormat(PtpConnection ptp, UsbVideoFormat requested) throws IOException {
-        if (requested.equals(activeFormat)) return;
-        PtpConnection.Reply reply = ptp.commandWithData(SET_FORMAT,
-                requested.toPayload(), UsbVideoFormat.CURRENT);
-        if (reply.panasonicCode() == PtpConnection.OK) {
-            activeFormat = requested;
-            listener.onNotice("La cámara aceptó " + requested.label()
-                    + ". La pantalla mostrará el tamaño y la fluidez recibidos.");
-        } else {
-            listener.onNotice("La cámara rechazó ese tamaño (" + PtpConnection.hex(reply.panasonicCode())
-                    + "). Se conserva la configuración anterior.");
+        listener.onUsbDiagnostic("Vista previa USB solicitada · " + requested.label()
+                + " · parámetro " + requested.cameraParameter);
+        if (!requested.equals(activeFormat)) {
+            int response = ptp.commandWithData(SET_FORMAT, requested.toPayload(), UsbVideoFormat.CURRENT).panasonicCode();
+            if (response == PtpConnection.OK) {
+                activeFormat = requested;
+                formatChanged = true;
+                listener.onNotice("La cámara aceptó la orden de vista previa USB (" + PtpConnection.hex(response) + ").");
+            } else {
+                listener.onNotice("La cámara rechazó la orden de vista previa USB (" + PtpConnection.hex(response) + ").");
+            }
         }
     }
 

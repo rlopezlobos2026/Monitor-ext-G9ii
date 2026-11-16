@@ -207,7 +207,7 @@ public final class MonitorActivity extends Activity {
         LinearLayout.LayoutParams recordPosition = new LinearLayout.LayoutParams(-2, -1);
         recordPosition.leftMargin = dp(5);
         headerRow.addView(monitorActions, recordPosition);
-        touchFocusButton = headerTool(monitorActions, "AF táctil", this::toggleTouchFocus);
+        touchFocusButton = headerTool(monitorActions, "AF área", this::toggleTouchFocus);
         touchFocusButton.setEnabled(false);
         updateTouchFocus();
         levelButton = headerTool(monitorActions, "Nivel", this::toggleLevel);
@@ -215,7 +215,7 @@ public final class MonitorActivity extends Activity {
         updateLevelButton();
 
         recordSwitch = new Switch(this);
-        recordSwitch.setText(phoneQualityLabel());
+        recordSwitch.setText("REC teléfono");
         recordSwitch.setTextSize(13);
         recordSwitch.setTextColor(INK);
         recordSwitch.setSwitchPadding(dp(9));
@@ -678,7 +678,7 @@ public final class MonitorActivity extends Activity {
     }
 
     private void moreMenu() {
-        menu("Monitor Lumix", new String[]{"Calidad USB", "Corrección anamórfica",
+        menu("Monitor Lumix", new String[]{"Vista previa USB", "Corrección anamórfica",
                 marked("Voltear horizontal", image.flipHorizontal), marked("Voltear vertical", image.flipVertical),
                 "Grabación en el teléfono", "Copiar diagnóstico"}, index -> {
             switch (index) {
@@ -720,23 +720,17 @@ public final class MonitorActivity extends Activity {
             }
             phoneQuality = selected;
             getPreferences(MODE_PRIVATE).edit().putInt("phoneQuality", selected.ordinal()).apply();
-            recordSwitch.setText(phoneQualityLabel());
             if (selected != PhoneVideoQuality.USB) {
                 toast("El MP4 se ajustará a " + selected.label + ". El detalle depende de la señal USB.");
             }
         });
     }
 
-    private String phoneQualityLabel() {
-        return phoneQuality == PhoneVideoQuality.UHD ? "REC 4K"
-                : phoneQuality == PhoneVideoQuality.FULL_HD ? "REC FHD" : "REC teléfono";
-    }
-
     private void cameraMenu() {
         CameraControls.Setting[] settings = CameraControls.Setting.values();
         String[] names = new String[settings.length + 8];
         for (int i = 0; i < settings.length; i++) names[i] = settings[i].name;
-        names[settings.length] = marked("AF al tocar · área activa", touchFocus);
+        names[settings.length] = marked("AF al tocar · área activa de la Lumix", touchFocus);
         names[settings.length + 1] = "AF ahora · área activa";
         names[settings.length + 2] = "Disparar foto";
         names[settings.length + 3] = "Video · iniciar o detener";
@@ -873,7 +867,7 @@ public final class MonitorActivity extends Activity {
     private void updateTouchFocus() {
         touchFocusButton.setTextColor(touchFocus ? MINT : INK);
         touchFocusButton.setSelected(touchFocus);
-        touchFocusButton.setContentDescription(touchFocus ? "Desactivar AF táctil" : "Activar AF táctil");
+        touchFocusButton.setContentDescription(touchFocus ? "Desactivar AF en el área activa de la Lumix" : "Activar AF en el área activa de la Lumix");
         image.setContentDescription(touchFocus
                 ? "Video. Toca para activar el AF en el área de la Lumix. Mantén pulsado para mostrar u ocultar controles."
                 : "Video. Toca para mostrar u ocultar controles.");
@@ -1030,7 +1024,7 @@ public final class MonitorActivity extends Activity {
             UsbVideoFormat mode = formats.get(i);
             names[i] = marked(mode.label(), mode.equals(current));
         }
-        menu("Calidad USB · elige según los fps", names, index -> {
+        menu("Vista previa USB · modos anunciados", names, index -> {
             if (preview != null && recorder == null) preview.changeFormat(formats.get(index));
         });
     }
@@ -1143,10 +1137,12 @@ public final class MonitorActivity extends Activity {
             @Override public void onFormats(List<UsbVideoFormat> formats, UsbVideoFormat current) {
                 ui.post(() -> {
                     if (destroyed || !frameSeen || recorder != null) return;
-                    log("Modos anunciados por USB: " + formats.size());
-                    for (UsbVideoFormat mode : formats) log(mode.label());
                     showFormats(formats, current);
                 });
+            }
+
+            @Override public void onUsbDiagnostic(String detail) {
+                ui.post(() -> { if (!destroyed) log(detail); });
             }
 
             @Override public void onNotice(String message) {

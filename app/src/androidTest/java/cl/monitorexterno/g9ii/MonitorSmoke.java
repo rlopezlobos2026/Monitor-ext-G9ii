@@ -62,10 +62,17 @@ public final class MonitorSmoke extends Instrumentation {
         require(lut.bitmap.getPixel(1, 0) == Color.RED && lut.bitmap.getPixel(2, 0) == Color.BLUE, "LUT RGB");
         UsbVideoFormat original = new UsbVideoFormat(1280, 720, 700, 30);
         require(original.equals(UsbVideoFormat.parseCurrent(original.toPayload())), "Formato PTP actual");
-        ByteBuffer choices = ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN)
-                .putInt(UsbVideoFormat.LIST).putInt(12).putShort((short) 1).putShort((short) 8)
-                .putShort((short) 720).putShort((short) 1280).putShort((short) 700).putShort((short) 30);
-        require(UsbVideoFormat.parseList(choices.array()).contains(original), "Formatos PTP anunciados");
+        UsbVideoFormat[] advertised = {
+                original, new UsbVideoFormat(640, 480, 320, 30), new UsbVideoFormat(960, 720, 500, 30),
+                new UsbVideoFormat(1920, 1080, 900, 30), new UsbVideoFormat(3840, 2160, 1000, 24)
+        };
+        ByteBuffer choices = ByteBuffer.allocate(12 + advertised.length * 8).order(ByteOrder.LITTLE_ENDIAN)
+                .putInt(UsbVideoFormat.LIST).putInt(4 + advertised.length * 8)
+                .putShort((short) advertised.length).putShort((short) 8);
+        for (UsbVideoFormat mode : advertised) choices.put(mode.toPayload(), 8, 8);
+        java.util.List<UsbVideoFormat> parsed = UsbVideoFormat.parseList(choices.array());
+        require(parsed.size() == advertised.length && parsed.get(0).equals(advertised[4]) && parsed.contains(original),
+                "La lista PTP admite más de tres formatos, incluido UHD si la cámara lo anuncia");
     }
 
     private void testCameraControls() {

@@ -167,8 +167,8 @@ final class MonitorImage extends View {
 
     void showFocusResult(boolean accepted) {
         if (SystemClock.uptimeMillis() >= focusUntil) return;
-        focusColor = accepted ? 0xff79f9b3 : 0xffff6976;
-        focusLabel = accepted ? "AF · orden aceptada" : "AF · orden rechazada";
+        focusColor = accepted ? 0xffffca59 : 0xffff6976;
+        focusLabel = accepted ? "AF · área activa de la Lumix" : "AF · orden rechazada";
         focusUntil = SystemClock.uptimeMillis() + 1300;
         invalidate();
         postInvalidateDelayed(1300);
