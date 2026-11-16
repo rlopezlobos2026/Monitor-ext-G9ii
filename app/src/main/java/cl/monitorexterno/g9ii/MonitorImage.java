@@ -109,7 +109,6 @@ final class MonitorImage extends View {
     boolean scopeLarge;
     boolean controlsVisible;
     int controlsHeight;
-    private float level = Float.NaN;
     private float focusX;
     private float focusY;
     private int focusColor;
@@ -147,12 +146,6 @@ final class MonitorImage extends View {
 
     boolean isPictureAt(float x, float y) {
         return image != null && destination.contains(x, y);
-    }
-
-    void setLevel(float angle) {
-        if (Float.compare(level, angle) == 0) return;
-        level = angle;
-        invalidate();
     }
 
     void showFocusTap(float x, float y) {
@@ -233,7 +226,6 @@ final class MonitorImage extends View {
             canvas.restoreToCount(previous);
         }
         drawGuides(canvas);
-        drawLevel(canvas);
         drawFocusTap(canvas);
         if (displayMode == 1 && !shaderFailed) drawColorScale(canvas);
         if (scope != VideoScopes.Mode.OFF && scopeImage != null) drawScope(canvas);
@@ -306,26 +298,6 @@ final class MonitorImage extends View {
         float y = focusY - half - 7 * density;
         if (y < 16 * density) y = focusY + half + 16 * density;
         canvas.drawText(focusLabel, x, y, drawPaint);
-        drawPaint.clearShadowLayer();
-    }
-
-    private void drawLevel(Canvas canvas) {
-        if (Float.isNaN(level)) return;
-        float x = getWidth() / 2f;
-        float y = getHeight() / 2f;
-        float span = Math.min(destination.width(), getWidth()) * 0.18f;
-        float gap = 14 * density;
-        drawPaint.setStrokeWidth(2 * density);
-        drawPaint.setShadowLayer(2 * density, 0, 0, Color.BLACK);
-        drawPaint.setColor(0xccffffff);
-        canvas.drawLine(x - span, y, x - span + 8 * density, y, drawPaint);
-        canvas.drawLine(x + span - 8 * density, y, x + span, y, drawPaint);
-        int saved = canvas.save();
-        canvas.rotate(level, x, y);
-        drawPaint.setColor(Math.abs(level) <= 1f ? 0xff64f299 : 0xffffca59);
-        canvas.drawLine(x - span, y, x - gap, y, drawPaint);
-        canvas.drawLine(x + gap, y, x + span, y, drawPaint);
-        canvas.restoreToCount(saved);
         drawPaint.clearShadowLayer();
     }
 

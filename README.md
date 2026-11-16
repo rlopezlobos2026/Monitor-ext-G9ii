@@ -1,8 +1,8 @@
-# Monitor ext G9ii
+# Monitor Lumix G9 II
 
 Monitor Android para la Panasonic Lumix G9 II por USB‑C directo. La prueba 0.1
 confirmó 640 × 360 y 30 fps recibidos con firmware 2.7 y un Galaxy S24 Ultra
-(SM-S928B) en Android 17. La versión 0.5 se instala aparte para poder comparar con las anteriores.
+(SM-S928B) en Android 17. Esta distribución requiere Android 13 o superior y USB host (OTG).
 
 ## Usar el monitor
 
@@ -10,17 +10,17 @@ confirmó 640 × 360 y 30 fps recibidos con firmware 2.7 y un Galaxy S24 Ultra
 2. Abre **Monitor Lumix G9 II**, toca **Conectar** y concede el acceso USB.
 3. **AF área** está en la barra superior y arranca activo. Toca el video para
    accionar el enfoque en el área ya seleccionada en la Lumix. Mantén el dedo
-   pulsado para ocultar o mostrar los controles. **Nivel** muestra la inclinación del teléfono. Si está montado
-   alineado con la Lumix, sirve para nivelar el conjunto.
-   La banda inferior deja a mano ISO, obturación, diafragma, EV, balance WB y Kelvin.
+   pulsado para ocultar o mostrar los controles, o usa el botón **Vista limpia**.
+   En **Configuración**, elige **Pequeño**, **Normal** o **Grande**, y activa **Controles a la izquierda**
+   si quieres diafragma, obturación, balance de blancos e ISO en una columna compacta.
+   Los botones muestran un punto verde mientras su ajuste o su herramienta están activos.
    Los ajustes numéricos abren un deslizador en la misma pantalla, con botones
    −, + y **Aplicar**. Los valores que informa la Lumix se muestran en la banda.
 4. En **Vista**, elige **Ajustar** para ver toda la imagen o **Llenar** para aprovechar
    todo el ancho recortando parte del encuadre. También hay vista píxel a píxel,
    doble toque para ampliar, zoom con dos dedos y arrastre para inspeccionar el encuadre.
 5. En **Más → Vista previa USB**, el menú muestra los modos que anuncia la cámara
-   y sus frecuencias nominales. La barra indica el tamaño y los fps realmente
-   recibidos. **Más → Copiar diagnóstico** incluye la respuesta al cambio, el
+   y sus frecuencias nominales. Tras elegir un modo, la app muestra el tamaño solicitado y el tamaño y los fps recibidos. **Más → Copiar diagnóstico** incluye la respuesta al cambio, el
    modo leído de la cámara y el tamaño del video recibido después de la selección. La conexión arranca en el modo normal
    de la cámara en cada sesión. Al desconectar desde la app, se intenta restaurar
    la calidad inicial si se obtuvo al consultar el dispositivo.
@@ -29,11 +29,11 @@ confirmó 640 × 360 y 30 fps recibidos con firmware 2.7 y un Galaxy S24 Ultra
 
 | Control | Funciones |
 | --- | --- |
-| Foco | Peaking con tres intensidades y color configurable, zoom 2× y 4× |
+| F. Peaking | Peaking con tres intensidades y color configurable, zoom 2× y 4× |
 | Exposición | Dos zebras de umbral regulable y falso color con leyenda |
-| Guías | Tercios, centro, área segura, máscara y marcos 2.39:1, 1.85:1, 16:9, 4:3, 1:1, 4:5 y 9:16 |
+| Más → Guías de encuadre | Tercios, centro, área segura, máscara y marcos 2.39:1, 1.85:1, 16:9, 4:3, 1:1, 4:5 y 9:16 |
 | Scopes | Histograma RGB, forma de onda de luma, parada RGB y vectorscopio con tamaño normal o ampliado |
-| Color | LUT `.cube` 1D o 3D, monitor azul y brillo |
+| Más → Color de monitor | LUT `.cube` 1D o 3D, monitor azul y brillo |
 | Más | Resolución USB, volteo horizontal y vertical, corrección anamórfica y diagnóstico USB |
 
 Las ayudas de exposición y los gráficos miden los niveles de la vista previa JPEG
@@ -44,7 +44,7 @@ El resultado de exposición se debe contrastar con la medición de la cámara en
 
 El interruptor **REC teléfono** arranca apagado y se habilita al recibir video.
 Enciéndelo para iniciar un clip y apágalo para guardarlo. El indicador rojo
-**REC TELÉFONO** y su contador permanecen visible al ocultar los controles. El MP4 AVC o HEVC se guarda
+**REC TELÉFONO** y su contador permanecen visibles al ocultar los controles. El MP4 AVC o HEVC se guarda
 en la carpeta `Movies/Monitor Lumix` y aparece en la galería del teléfono. Desconectar
 desde la app, quitar el cable o salir al fondo finaliza la grabación si el archivo se
 puede cerrar. En **Más → Grabación en el teléfono** elige el tamaño según la señal USB, Full HD
@@ -52,7 +52,7 @@ o 4K UHD (3840 × 2160, cuando el codificador del teléfono lo permite). La tasa
 configurada es 30 fps. Si la señal USB es menor, el resultado se amplía para
 llenar la mayor área posible del MP4 conservando el aspecto. La ampliación
 mantiene el detalle original. El MP4 se codifica directamente a partir de la
-señal USB, sin audio ni las ayudas de la app, incluidas zebras, guías, nivel y LUT.
+señal USB, sin audio ni las ayudas de la app, incluidas zebras, guías y LUT.
 Si la Lumix incorpora gráficos en la señal que entrega, esos gráficos forman parte
 de la imagen. El interruptor no acciona la grabación interna de la Lumix.
 
@@ -89,7 +89,7 @@ balance de blancos, REC y STOP de la Lumix y guardado local en el teléfono.
 En el emulador se prueban la interpretación de estados, la serialización de
 los ajustes, las herramientas del monitor y la creación de MP4.
 
-## Kelvin y distancia focal
+## Kelvin
 
 En **Kelvin**, elige primero **Temperatura 1 a 4** en **Modos WB**. La G9 II
 admite 2500–10000 K. Si la Lumix no entrega la lista por USB, el deslizador
@@ -97,13 +97,6 @@ usa ese rango en pasos de 100 K solo si puede leer un valor Kelvin válido
 y verificar que el WB esté en un modo K. La confirmación del ajuste se lee
 de vuelta por USB.
 
-El recuadro **Focal** muestra los milímetros ópticos cuando el cuerpo los
-informa mediante la propiedad PTP estándar o en los metadatos del fotograma.
-Si no hay un valor disponible, el monitor muestra un guion. Toca el recuadro
-para repetir la consulta. La lectura durante el zoom en la G9 II con el
-45–175 mm requiere una prueba en el equipo físico.
-
-- [Panasonic G9 II, distancia focal durante el zoom](https://eww.pavc.panasonic.co.jp/dscoi/DC-G9M2/html/DC-G9M2_DVQP3010_eng/0044.html)
 - [Panasonic G9 II, ajuste del balance de blancos](https://eww.pavc.panasonic.co.jp/dscoi/DC-G9M2/html/DC-G9M2_DVQP3010_eng/0069.html)
 - [Atomos Shinobi II, controles de cámara](https://support.atomos.com/hc/en-us/articles/10342487969807-Camera-Control)
 - [SmallHD, controles táctiles en PageOS](https://guide.smallhd.com/a/1714451-user-interface-quick-start-touchscreen)
@@ -132,3 +125,7 @@ El proyecto usa JDK 17, SDK Android 35 y Gradle 8.9. Abre la carpeta en Android 
 o ejecuta `gradle :app:lintDebug :app:assembleDebug`. La APK de prueba queda en
 `app/build/outputs/apk/debug/`. En GitHub, entra a **Actions → Compilar APK Android**
 y abre una ejecución exitosa para descargar el ZIP de **Artifacts**.
+
+## Memoria del proyecto
+
+Las decisiones, los resultados de las pruebas físicas y los temas pendientes están en la [memoria del proyecto](memory/Monitor_Lumix.md).

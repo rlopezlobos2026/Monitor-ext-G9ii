@@ -25,6 +25,7 @@ final class LivePreview implements Runnable {
         void onPreviewPause(String reason);
         void onMovieQuality(String detail);
         void onFormats(List<UsbVideoFormat> formats, UsbVideoFormat current);
+        void onFormatMeasurement(UsbVideoFormat requested, int width, int height, double fps);
         void onUsbDiagnostic(String detail);
         void onNotice(String message);
         void onRecordingState(CameraControls.RecordingState state, String diagnostic);
@@ -32,7 +33,6 @@ final class LivePreview implements Runnable {
         void onCameraChoices(CameraControls.Setting setting, CameraControls.Choices choices);
         void onCameraValue(CameraControls.Setting setting, Integer value);
         void onCameraSettingResult(CameraControls.Setting setting, Integer confirmed, String message);
-        void onFocalLength(double mm, String diagnostic);
         void onCameraDiagnostic(String diagnostic);
         void onFinished(String error);
     }
@@ -54,16 +54,9 @@ final class LivePreview implements Runnable {
     private final ArrayBlockingQueue<CameraRequest> cameraRequests = new ArrayBlockingQueue<>(6);
     private final AtomicBoolean statusRequested = new AtomicBoolean();
     private final AtomicBoolean quickRequested = new AtomicBoolean();
-    private final AtomicBoolean focalRequested = new AtomicBoolean();
     private final boolean g9ii;
     private int quickIndex = CameraControls.QUICK_SETTINGS.length;
     private long nextQuickPoll;
-    private long nextFocalPoll;
-    private long nextExifPoll;
-    private boolean pollFocalPtp = true;
-    private int focalFailures;
-    private double reportedFocal;
-    private String focalSource = "";
     private boolean canPollRecording = true;
     private boolean triedVendorSession;
     private boolean vendorSessionOpen;
@@ -136,10 +129,6 @@ final class LivePreview implements Runnable {
 
     void refreshQuickSettings() {
         quickRequested.set(true);
-    }
-
-    void refreshFocalLength() {
-        focalRequested.set(true);
     }
 
     boolean cameraChoices(CameraControls.Setting setting) {
@@ -296,14 +285,13 @@ final class LivePreview implements Runnable {
     private void receiveFrames(PtpConnection ptp) throws IOException {
         long lastFrame = SystemClock.elapsedRealtime();
         long measureStart = lastFrame;
-        nextFocalPoll = lastFrame + 2000;
         int frameCount = 0;
         double fps = 0;
         boolean hasReceivedFrame = false;
         boolean paused = false;
         long nextRecovery = lastFrame + 5000;
         int recoveries = 0;
-        boolean measureFormat = false;
+        UsbVideoFormat measuringFormat = null;
         while (!stopped) {
             CameraRequest cameraRequest = cameraRequests.poll();
             if (cameraRequest != null) cameraRequest.run(ptp);
@@ -321,7 +309,7 @@ final class LivePreview implements Runnable {
             UsbVideoFormat requested = formatRequested.getAndSet(null);
             if (requested != null && availableFormats.contains(requested)) {
                 applyFormat(ptp, requested);
-                measureFormat = true;
+                measuringFormat = requested;
                 lastFrame = SystemClock.elapsedRealtime();
                 measureStart = lastFrame;
                 nextRecovery = lastFrame + 5000;
@@ -347,11 +335,12 @@ final class LivePreview implements Runnable {
                 frameCount++;
                 if (now - measureStart >= 1000) {
                     fps = frameCount * 1000.0 / (now - measureStart);
-                    if (measureFormat) {
+                    if (measuringFormat != null) {
                         listener.onUsbDiagnostic(String.format(Locale.ROOT,
                                 "Vista previa USB recibida tras la selección · %d × %d · %.1f fps",
                                 frame.getWidth(), frame.getHeight(), fps));
-                        measureFormat = false;
+                        listener.onFormatMeasurement(measuringFormat, frame.getWidth(), frame.getHeight(), fps);
+                        measuringFormat = null;
                         UsbVideoFormat confirmed = readCurrentFormat(ptp);
                         if (confirmed != null) activeFormat = confirmed;
                     }
@@ -397,36 +386,11 @@ final class LivePreview implements Runnable {
 
     private void pollTelemetry(PtpConnection ptp, long now) throws IOException {
         if (quickRequested.getAndSet(false)) quickIndex = 0;
-        if (focalRequested.getAndSet(false)) {
-            pollFocalPtp = true;
-            focalFailures = 0;
-            nextFocalPoll = 0;
-        }
-        if (pollFocalPtp && now >= nextFocalPoll) {
-            nextFocalPoll = now + 700;
-            PtpConnection.Reply reply = ptp.command(0x1015, 0x5008);
-            double mm = reply.panasonicCode() == PtpConnection.OK ? LensTelemetry.ptpFocalLength(reply.data) : 0;
-            if (mm > 0) {
-                focalFailures = 0;
-                reportFocal(mm, "PTP 0x5008");
-            } else if (reply.panasonicCode() != PtpConnection.DEVICE_BUSY && ++focalFailures >= 2) {
-                pollFocalPtp = false;
-                if (!"EXIF".equals(focalSource)) reportFocal(0, "PTP focal " + PtpConnection.hex(reply.panasonicCode()));
-            }
-            return;
-        }
         if (quickIndex < CameraControls.QUICK_SETTINGS.length && now >= nextQuickPoll) {
             nextQuickPoll = now + 150;
             CameraControls.Setting setting = CameraControls.QUICK_SETTINGS[quickIndex++];
             listener.onCameraValue(setting, CameraControls.current(ptp, setting));
         }
-    }
-
-    private void reportFocal(double mm, String source) {
-        if (reportedFocal == mm && focalSource.equals(source)) return;
-        reportedFocal = mm;
-        focalSource = source;
-        listener.onFocalLength(mm, source);
     }
 
     private void pollRecording(PtpConnection ptp) throws IOException {
@@ -502,16 +466,7 @@ final class LivePreview implements Runnable {
             if ((data[start] & 255) == 255 && (data[start + 1] & 255) == 216
                     && (data[start + 2] & 255) == 255) {
                 Bitmap result = BitmapFactory.decodeByteArray(data, start, data.length - start, jpegOptions);
-                if (result != null) {
-                    if ((!pollFocalPtp || reportedFocal == 0 || "EXIF".equals(focalSource))
-                            && SystemClock.elapsedRealtime() >= nextExifPoll) {
-                        nextExifPoll = SystemClock.elapsedRealtime() + 700;
-                        double focal = LensTelemetry.jpegFocalLength(data, start);
-                        if (focal > 0) reportFocal(focal, "EXIF");
-                        else if ("EXIF".equals(focalSource)) reportFocal(0, "Vista previa sin focal");
-                    }
-                    return result;
-                }
+                if (result != null) return result;
             }
         }
         return null;

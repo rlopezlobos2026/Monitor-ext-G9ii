@@ -23,6 +23,7 @@ final class AdjustmentPanel extends LinearLayout {
     private final Button larger;
     private final Button apply;
     private final Button modes;
+    private final Button closeButton;
     private final Apply writer;
     private CameraControls.Setting setting;
     private CameraControls.Choices choices;
@@ -61,12 +62,30 @@ final class AdjustmentPanel extends LinearLayout {
         apply = button(row, "Aplicar", 86, this::applySelected);
         apply.setTextColor(ACCENT);
         modes = button(row, "Modos WB", 104, whiteBalance);
-        button(row, "Cerrar", 70, close);
+        closeButton = button(row, "Cerrar", 70, close);
 
         detail = text(12, MUTED);
         detail.setPadding(dp(2), 0, dp(2), 0);
         addView(detail, new LayoutParams(-1, -2));
         clear();
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        int available = MeasureSpec.getSize(widthMeasureSpec) - getPaddingLeft() - getPaddingRight();
+        boolean compact = MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED && available < dp(530);
+        controlWidth(heading, compact ? 90 : 124);
+        controlWidth(smaller, compact ? 35 : 46);
+        controlWidth(larger, compact ? 35 : 46);
+        controlWidth(apply, compact ? 68 : 86);
+        controlWidth(modes, compact ? 77 : 104);
+        controlWidth(closeButton, compact ? 55 : 70);
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    }
+
+    private void controlWidth(android.view.View view, int width) {
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) view.getLayoutParams();
+        params.width = dp(width);
     }
 
     void open(CameraControls.Setting setting) {

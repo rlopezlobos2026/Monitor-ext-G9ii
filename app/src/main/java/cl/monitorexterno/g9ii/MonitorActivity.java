@@ -13,11 +13,10 @@ import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.Insets;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
+import android.graphics.drawable.LayerDrawable;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
@@ -44,6 +43,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
@@ -55,6 +55,12 @@ public final class MonitorActivity extends Activity {
     private static final String USB_PERMISSION = "cl.monitorexterno.g9ii.monitor.v05.USB_PERMISSION";
     private static final int INK = 0xfff1f8f6;
     private static final int MINT = 0xffacf0dc;
+    private static final int ACTIVE_DOT = 0xff79ef9c;
+    private static final int SIDE_WIDTH = 70;
+    private static final CameraControls.Setting[] SIDE_SETTINGS = {
+            CameraControls.Setting.APERTURE, CameraControls.Setting.SHUTTER,
+            CameraControls.Setting.WHITE_BALANCE, CameraControls.Setting.ISO
+    };
     private final StringBuilder diagnostic = new StringBuilder();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final AtomicReference<VideoFrame> newest = new AtomicReference<>();
@@ -65,12 +71,10 @@ public final class MonitorActivity extends Activity {
     private volatile PhoneRecorder recorder;
     private MonitorImage image;
     private TextView status;
-    private TextView lensStatus;
     private final EnumMap<CameraControls.Setting, Button> quickButtons = new EnumMap<>(CameraControls.Setting.class);
     private final EnumMap<CameraControls.Setting, Integer> quickValues = new EnumMap<>(CameraControls.Setting.class);
     private AdjustmentPanel adjustment;
     private CameraControls.Setting pendingList;
-    private double focalLength;
     private TextView notice;
     private TextView phoneBadge;
     private TextView cameraBadge;
@@ -78,23 +82,10 @@ public final class MonitorActivity extends Activity {
     private Button cameraPhoto;
     private Button cameraRecord;
     private Button touchFocusButton;
-    private Button levelButton;
     private TextView previewPause;
     private boolean touchFocus;
     private long touchFocusRequest;
-    private SensorManager sensors;
-    private Sensor levelSensor;
-    private boolean levelEnabled;
-    private boolean activityResumed;
     private boolean previewPaused;
-    private final SensorEventListener levelListener = new SensorEventListener() {
-        @Override public void onSensorChanged(SensorEvent event) {
-            if (image == null || getDisplay() == null) return;
-            image.setLevel(PhoneLevel.roll(event.values[0], event.values[1], getDisplay().getRotation()));
-        }
-
-        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
-    };
     private CameraControls.RecordingState cameraState = CameraControls.RecordingState.UNKNOWN;
     private Boolean requestedRecording;
     private boolean recordingUnverified;
@@ -108,7 +99,25 @@ public final class MonitorActivity extends Activity {
     private Switch recordSwitch;
     private LinearLayout tools;
     private LinearLayout quickControls;
+    private LinearLayout sideControls;
+    private LinearLayout actions;
     private FrameLayout header;
+    private LinearLayout headerRow;
+    private LinearLayout monitorActions;
+    private LinearLayout indicators;
+    private Button configurationButton;
+    private Button controlsButton;
+    private Button focusTool;
+    private Button exposureTool;
+    private Button scopesTool;
+    private Button moreTool;
+    private final List<Button> actionButtons = new ArrayList<>();
+    private Insets cutout = Insets.NONE;
+    private ControlSize controlSize = ControlSize.NORMAL;
+    private boolean controlsOnLeft;
+    private boolean quickControlsEnabled;
+    private CameraControls.Setting listedQuickSetting;
+    private UsbVideoFormat requestedUsbFormat;
     private boolean showingControls = true;
     private boolean frameSeen;
     private volatile boolean destroyed;
@@ -144,17 +153,13 @@ public final class MonitorActivity extends Activity {
         int quality = getPreferences(MODE_PRIVATE).getInt("phoneQuality", 0);
         PhoneVideoQuality[] qualities = PhoneVideoQuality.values();
         if (quality >= 0 && quality < qualities.length) phoneQuality = qualities[quality];
-        sensors = getSystemService(SensorManager.class);
-        if (sensors != null) {
-            levelSensor = sensors.getDefaultSensor(Sensor.TYPE_GRAVITY);
-            if (levelSensor == null) levelSensor = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        }
-        levelEnabled = levelSensor != null && getPreferences(MODE_PRIVATE).getBoolean("phoneLevel", true);
+        controlSize = ControlSize.fromPreference(getPreferences(MODE_PRIVATE).getString("controlSize", "NORMAL"));
+        controlsOnLeft = getPreferences(MODE_PRIVATE).getBoolean("controlsOnLeft", false);
         touchFocus = getPreferences(MODE_PRIVATE).getBoolean("touchFocus", true);
         buildUi();
         immerse();
         registerReceiver(permissionReceiver, new IntentFilter(USB_PERMISSION), Context.RECEIVER_NOT_EXPORTED);
-        diagnostic.append("Monitor Lumix USB 0.5\n").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
+        diagnostic.append(getString(R.string.app_name)).append(' ').append(BuildConfig.VERSION_NAME).append('\n').append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
                 .append(" | Android ").append(Build.VERSION.RELEASE).append('\n');
         status.setText("USB · Sin cámara");
         showNotice("Conecta la Lumix por USB‑C, selecciona PC(Tether) y toca Conectar.");
@@ -170,8 +175,8 @@ public final class MonitorActivity extends Activity {
         header = new FrameLayout(this);
         FrameLayout.LayoutParams headerPosition = new FrameLayout.LayoutParams(-1, dp(56), Gravity.TOP);
         root.addView(header, headerPosition);
-        LinearLayout headerRow = new LinearLayout(this);
-        headerRow.setGravity(Gravity.CENTER_VERTICAL);
+        headerRow = new LinearLayout(this);
+        headerRow.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
         FrameLayout.LayoutParams headerRowPosition = new FrameLayout.LayoutParams(-1, dp(46), Gravity.TOP);
         headerRowPosition.setMargins(dp(12), dp(5), dp(12), 0);
         header.addView(headerRow, headerRowPosition);
@@ -185,24 +190,7 @@ public final class MonitorActivity extends Activity {
         status.setBackground(panel(0xe81c242d, 8));
         status.setPadding(dp(11), dp(7), dp(11), dp(7));
         signal.addView(status);
-        lensStatus = label(12, INK);
-        lensStatus.setSingleLine(true);
-        lensStatus.setEllipsize(TextUtils.TruncateAt.END);
-        lensStatus.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        lensStatus.setBackground(panel(0xea283441, 8));
-        lensStatus.setPadding(dp(10), dp(7), dp(10), dp(7));
-        LinearLayout.LayoutParams lensPosition = new LinearLayout.LayoutParams(-2, -2);
-        lensPosition.leftMargin = dp(6);
-        signal.addView(lensStatus, lensPosition);
-        setFocalDisplay(0);
-        lensStatus.setOnClickListener(view -> {
-            if (preview != null && frameSeen) {
-                preview.refreshFocalLength();
-                if (focalLength <= 0) toast("Consultando la distancia focal óptica por USB.");
-            }
-        });
-
-        LinearLayout monitorActions = new LinearLayout(this);
+        monitorActions = new LinearLayout(this);
         monitorActions.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams recordPosition = new LinearLayout.LayoutParams(-2, -1);
         recordPosition.leftMargin = dp(5);
@@ -210,10 +198,6 @@ public final class MonitorActivity extends Activity {
         touchFocusButton = headerTool(monitorActions, "AF área", this::toggleTouchFocus);
         touchFocusButton.setEnabled(false);
         updateTouchFocus();
-        levelButton = headerTool(monitorActions, "Nivel", this::toggleLevel);
-        levelButton.setEnabled(levelSensor != null);
-        updateLevelButton();
-
         recordSwitch = new Switch(this);
         recordSwitch.setText("REC teléfono");
         recordSwitch.setTextSize(13);
@@ -231,6 +215,9 @@ public final class MonitorActivity extends Activity {
         });
         recordSwitch.setContentDescription("Grabar en el teléfono");
         monitorActions.addView(recordSwitch, new LinearLayout.LayoutParams(-2, -1));
+        configurationButton = headerTool(monitorActions, "⚙", this::configurationMenu);
+        configurationButton.setContentDescription("Configuración");
+        controlsButton = headerTool(headerRow, "Vista limpia", () -> controls(!showingControls));
 
         cameraBorder = new View(this);
         GradientDrawable redBorder = panel(Color.TRANSPARENT, 0);
@@ -240,7 +227,7 @@ public final class MonitorActivity extends Activity {
         cameraBorder.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         root.addView(cameraBorder, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout indicators = new LinearLayout(this);
+        indicators = new LinearLayout(this);
         indicators.setOrientation(LinearLayout.VERTICAL);
         indicators.setGravity(Gravity.CENTER_HORIZONTAL);
         FrameLayout.LayoutParams badgePosition = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
@@ -274,10 +261,10 @@ public final class MonitorActivity extends Activity {
         root.addView(tools, toolsPosition);
         tools.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             image.controlsHeight = bottom - top;
-            image.invalidate();
+            redrawTools();
         });
 
-        adjustment = new AdjustmentPanel(this, this::applySetting, () -> adjustment.clear(),
+        adjustment = new AdjustmentPanel(this, this::applySetting, this::closeAdjustment,
                 () -> requestSetting(CameraControls.Setting.WHITE_BALANCE));
         LinearLayout.LayoutParams editorPosition = new LinearLayout.LayoutParams(-1, -2);
         editorPosition.bottomMargin = dp(4);
@@ -288,6 +275,9 @@ public final class MonitorActivity extends Activity {
         LinearLayout.LayoutParams quickPosition = new LinearLayout.LayoutParams(-1, dp(51));
         quickPosition.bottomMargin = dp(4);
         tools.addView(quickControls, quickPosition);
+        sideControls = new LinearLayout(this);
+        sideControls.setOrientation(LinearLayout.VERTICAL);
+        root.addView(sideControls, new FrameLayout.LayoutParams(dp(SIDE_WIDTH), -2, Gravity.START | Gravity.CENTER_VERTICAL));
         for (CameraControls.Setting setting : CameraControls.QUICK_SETTINGS) {
             Button button = tool(quickControls, quickLabel(setting) + "\n—", () -> requestSetting(setting));
             button.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -297,7 +287,7 @@ public final class MonitorActivity extends Activity {
             quickButtons.put(setting, button);
         }
 
-        LinearLayout actions = new LinearLayout(this);
+        actions = new LinearLayout(this);
         actions.setGravity(Gravity.CENTER_VERTICAL);
         tools.addView(actions, new LinearLayout.LayoutParams(-1, dp(48)));
         connect = tool(actions, "Conectar", this::connectOrStop);
@@ -313,29 +303,18 @@ public final class MonitorActivity extends Activity {
         cameraRecord.setEnabled(false);
         tool(actions, "Cámara", this::cameraMenu);
         tool(actions, "Vista", this::viewMenu);
-        tool(actions, "Foco", this::focusMenu);
-        tool(actions, "Exponer", this::exposureMenu);
-        tool(actions, "Guías", this::guideMenu);
-        tool(actions, "Scopes", this::scopeMenu);
-        tool(actions, "Color", this::colorMenu);
-        tool(actions, "Más", this::moreMenu);
+        focusTool = tool(actions, "F. Peaking", this::focusMenu);
+        exposureTool = tool(actions, "Exposición", this::exposureMenu);
+        scopesTool = tool(actions, "Scopes", this::scopeMenu);
+        moreTool = tool(actions, "Más", this::moreMenu);
+        for (int i = 0; i < actions.getChildCount(); i++) actionButtons.add((Button) actions.getChildAt(i));
         indicators.bringToFront();
         root.setOnApplyWindowInsetsListener((view, insets) -> {
-            android.graphics.Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
-            header.setPadding(cutout.left, cutout.top, cutout.right, 0);
-            if (badgePosition.topMargin != cutout.top + dp(52)) {
-                badgePosition.topMargin = cutout.top + dp(52);
-                indicators.setLayoutParams(badgePosition);
-            }
-            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) header.getLayoutParams();
-            int height = dp(56) + cutout.top;
-            if (params.height != height) {
-                params.height = height;
-                header.setLayoutParams(params);
-            }
-            tools.setPadding(dp(9) + cutout.left, 0, dp(9) + cutout.right, dp(5) + cutout.bottom);
+            cutout = insets.getInsets(WindowInsets.Type.displayCutout());
+            applyControlGeometry();
             return insets;
         });
+        applyControlLayout();
         setContentView(root);
         setQuickControlsEnabled(false);
     }
@@ -392,6 +371,7 @@ public final class MonitorActivity extends Activity {
         button.setTextColor(INK);
         button.setTextSize(12);
         button.setMaxLines(2);
+        button.setEllipsize(TextUtils.TruncateAt.END);
         button.setMinWidth(0);
         button.setMinimumWidth(0);
         button.setMinHeight(0);
@@ -412,6 +392,170 @@ public final class MonitorActivity extends Activity {
         button.setPadding(dp(7), 0, dp(7), 0);
         button.setLayoutParams(position);
         return button;
+    }
+
+    private enum ControlSize {
+        SMALL("Pequeño · 50 %", 0.5f), NORMAL("Normal · 100 %", 1f), LARGE("Grande · 120 %", 1.2f);
+
+        final String label;
+        final float scale;
+
+        ControlSize(String label, float scale) {
+            this.label = label;
+            this.scale = scale;
+        }
+
+        static ControlSize fromPreference(String value) {
+            for (ControlSize size : values()) if (size.name().equals(value)) return size;
+            return NORMAL;
+        }
+    }
+
+    private void configurationMenu() {
+        menu("Configuración", new String[]{"Tamaño de botones · " + controlSize.label,
+                marked("Controles a la izquierda", controlsOnLeft)}, index -> {
+            if (index == 0) {
+                ControlSize[] sizes = ControlSize.values();
+                String[] names = new String[sizes.length];
+                for (int i = 0; i < sizes.length; i++) names[i] = marked(sizes[i].label, sizes[i] == controlSize);
+                menu("Tamaño de botones", names, selected -> setControlSize(sizes[selected]));
+            } else {
+                setControlsOnLeft(!controlsOnLeft);
+            }
+        });
+    }
+
+    private void setControlSize(ControlSize size) {
+        controlSize = size;
+        getPreferences(MODE_PRIVATE).edit().putString("controlSize", size.name()).apply();
+        applyControlGeometry();
+    }
+
+    private void setControlsOnLeft(boolean enabled) {
+        controlsOnLeft = enabled;
+        getPreferences(MODE_PRIVATE).edit().putBoolean("controlsOnLeft", enabled).apply();
+        applyControlLayout();
+    }
+
+    private void applyControlLayout() {
+        quickControls.removeAllViews();
+        sideControls.removeAllViews();
+        if (controlsOnLeft) {
+            for (CameraControls.Setting setting : SIDE_SETTINGS) {
+                LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(-1, dp(30));
+                position.bottomMargin = dp(3);
+                sideControls.addView(quickButtons.get(setting), position);
+            }
+        }
+        for (CameraControls.Setting setting : CameraControls.QUICK_SETTINGS) {
+            Button button = quickButtons.get(setting);
+            if (button.getParent() != null) continue;
+            LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(0, -1, 1);
+            position.setMargins(dp(2), 0, dp(2), 0);
+            quickControls.addView(button, position);
+        }
+        updateQuickVisibility();
+        applyControlGeometry();
+    }
+
+    private void updateQuickVisibility() {
+        boolean visible = showingControls && quickControlsEnabled;
+        quickControls.setVisibility(visible ? View.VISIBLE : View.GONE);
+        sideControls.setVisibility(visible && controlsOnLeft ? View.VISIBLE : View.GONE);
+        updateControlInsets();
+    }
+
+    private void updateControlInsets() {
+        int sideSpace = sideControls.getVisibility() == View.VISIBLE ? dp(SIDE_WIDTH + 5) : 0;
+        int left = dp(9) + cutout.left + sideSpace;
+        int right = dp(9) + cutout.right;
+        int bottom = dp(5) + cutout.bottom;
+        if (tools.getPaddingLeft() != left || tools.getPaddingRight() != right || tools.getPaddingBottom() != bottom) {
+            tools.setPadding(left, 0, right, bottom);
+        }
+    }
+
+    private void applyControlGeometry() {
+        float scale = controlSize.scale;
+        header.setPadding(cutout.left, cutout.top, cutout.right, 0);
+        layoutHeight(header, dp(10 + 46 * scale) + cutout.top);
+        layoutHeight(headerRow, dp(46 * scale));
+        layoutHeight(quickControls, dp(51 * scale));
+        layoutHeight(actions, dp(48 * scale));
+        FrameLayout.LayoutParams badgePosition = (FrameLayout.LayoutParams) indicators.getLayoutParams();
+        int top = cutout.top + dp(6 + 46 * scale);
+        if (badgePosition.topMargin != top) {
+            badgePosition.topMargin = top;
+            indicators.setLayoutParams(badgePosition);
+        }
+        FrameLayout.LayoutParams sidePosition = (FrameLayout.LayoutParams) sideControls.getLayoutParams();
+        int sideLeft = dp(6) + cutout.left;
+        if (sidePosition.leftMargin != sideLeft) {
+            sidePosition.leftMargin = sideLeft;
+            sideControls.setLayoutParams(sidePosition);
+        }
+        for (Button button : actionButtons) sizeButton(button, scale);
+        for (Button button : quickButtons.values()) sizeButton(button, button.getParent() == sideControls ? 0.75f : scale);
+        for (Button button : new Button[]{touchFocusButton, configurationButton, controlsButton}) {
+            sizeButton(button, scale);
+            layoutHeight(button, dp(44 * scale));
+        }
+        recordSwitch.setTextSize(Math.max(10, 13 * scale));
+        recordSwitch.setMinHeight(dp(44 * scale));
+        updateControlInsets();
+    }
+
+    private static void layoutHeight(View view, int height) {
+        android.view.ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (params.height == height) return;
+        params.height = height;
+        view.setLayoutParams(params);
+    }
+
+    private static void sizeButton(Button button, float scale) {
+        button.setTextSize(Math.max(10, 12 * scale));
+        button.setIncludeFontPadding(scale >= 1);
+    }
+
+    private void closeAdjustment() {
+        adjustment.clear();
+        updateActiveDots();
+    }
+
+    private void redrawTools() {
+        image.invalidate();
+        updateActiveDots();
+    }
+
+    private void updateActiveDots() {
+        for (CameraControls.Setting setting : CameraControls.QUICK_SETTINGS) {
+            setActiveDot(quickButtons.get(setting), adjustment.isEditing(setting) || listedQuickSetting == setting);
+        }
+        setActiveDot(focusTool, image.peaking > 0);
+        setActiveDot(exposureTool, image.zebraA >= 0 || image.zebraB >= 0 || image.displayMode == 1);
+        setActiveDot(scopesTool, image.scope != VideoScopes.Mode.OFF);
+        setActiveDot(moreTool, image.grid || image.crosshair || image.guideRatio > 0 || image.safeArea > 0
+                || image.hasLut() || image.displayMode == 2 || image.flipHorizontal || image.flipVertical
+                || image.desqueeze != 1);
+    }
+
+    private void setActiveDot(Button button, boolean active) {
+        if (button.isSelected() == active) return;
+        button.setSelected(active);
+        button.setStateDescription(active ? "Activo" : null);
+        if (!active) {
+            button.setForeground(null);
+            return;
+        }
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        dot.setColor(ACTIVE_DOT);
+        LayerDrawable foreground = new LayerDrawable(new Drawable[]{dot});
+        foreground.setLayerSize(0, dp(6), dp(6));
+        foreground.setLayerGravity(0, Gravity.TOP | Gravity.END);
+        foreground.setLayerInsetEnd(0, dp(4));
+        foreground.setLayerInsetTop(0, dp(4));
+        button.setForeground(foreground);
     }
 
     private TextView recordingBadge(LinearLayout group, int color) {
@@ -446,24 +590,20 @@ public final class MonitorActivity extends Activity {
 
     private void controls(boolean visible) {
         showingControls = visible;
-        header.setVisibility(visible ? View.VISIBLE : View.GONE);
+        monitorActions.setVisibility(visible ? View.VISIBLE : View.GONE);
+        status.setVisibility(visible ? View.VISIBLE : View.GONE);
         tools.setVisibility(visible ? View.VISIBLE : View.GONE);
+        controlsButton.setText(visible ? "Vista limpia" : "Controles");
+        controlsButton.setContentDescription(visible ? "Ocultar controles" : "Mostrar controles");
+        updateQuickVisibility();
         if (!visible) {
-            adjustment.clear();
+            closeAdjustment();
             pendingList = null;
         }
         image.controlsVisible = visible;
-        image.invalidate();
+        redrawTools();
         if (visible && preview != null && frameSeen) preview.refreshQuickSettings();
         immerse();
-    }
-
-    private void setFocalDisplay(double mm) {
-        focalLength = mm;
-        String value = mm <= 0 ? "—" : new java.text.DecimalFormat("0.#").format(mm) + " mm";
-        lensStatus.setText(mm <= 0 ? "Focal —" : value);
-        lensStatus.setContentDescription(mm <= 0 ? "Distancia focal sin dato. Toca para consultar."
-                : "Distancia focal óptica " + value);
     }
 
     static String quickLabel(CameraControls.Setting setting) {
@@ -496,7 +636,9 @@ public final class MonitorActivity extends Activity {
             quickButtons.get(setting).setEnabled(enabled);
             if (!enabled) setQuickValue(setting, null);
         }
-        quickControls.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        quickControlsEnabled = enabled;
+        updateQuickVisibility();
+        updateActiveDots();
     }
 
     private void immerse() {
@@ -516,9 +658,14 @@ public final class MonitorActivity extends Activity {
     private interface Selection { void choose(int index); }
 
     private void menu(String title, String[] options, Selection selection) {
+        menu(title, options, selection, null);
+    }
+
+    private void menu(String title, String[] options, Selection selection, Runnable onDismiss) {
         AlertDialog dialog = new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                 .setTitle(title).setItems(options, (box, index) -> selection.choose(index))
                 .setNegativeButton("Cerrar", null).create();
+        if (onDismiss != null) dialog.setOnDismissListener(ignored -> onDismiss.run());
         dialog.show();
     }
 
@@ -546,13 +693,13 @@ public final class MonitorActivity extends Activity {
             if (index == 0) {
                 menu("Intensidad de peaking", new String[]{"Apagado", "Baja", "Media", "Alta"}, value -> {
                     image.peaking = value;
-                    image.invalidate();
+                    redrawTools();
                 });
             } else if (index == 1) {
                 menu("Color de bordes", new String[]{"Verde", "Rojo", "Amarillo", "Cian", "Blanco"}, value -> {
                     int[] colors = {Color.GREEN, Color.RED, Color.YELLOW, Color.CYAN, Color.WHITE};
                     image.peakingColor = colors[value];
-                    image.invalidate();
+                    redrawTools();
                 });
             } else if (index == 4) {
                 image.resetZoom();
@@ -575,7 +722,7 @@ public final class MonitorActivity extends Activity {
                 image.zebraB = -1;
                 if (image.displayMode == 1) image.displayMode = 0;
             }
-            image.invalidate();
+            redrawTools();
         });
     }
 
@@ -585,7 +732,7 @@ public final class MonitorActivity extends Activity {
             int[] levels = {-1, 50, 60, 65, 70, 75, 80, 85, 90, 95, 98, 100};
             if (yellow) image.zebraA = levels[index];
             else image.zebraB = levels[index];
-            image.invalidate();
+            redrawTools();
         });
     }
 
@@ -601,7 +748,7 @@ public final class MonitorActivity extends Activity {
                     menu("Relación de aspecto", new String[]{"Sin marco", "2.39:1", "1.85:1", "16:9", "4:3", "1:1", "4:5", "9:16"}, value -> {
                         float[] ratios = {0, 2.39f, 1.85f, 16f / 9, 4f / 3, 1, 4f / 5, 9f / 16};
                         image.guideRatio = ratios[value];
-                        image.invalidate();
+                        redrawTools();
                     });
                     break;
                 case 1: image.grid = !image.grid; break;
@@ -611,12 +758,12 @@ public final class MonitorActivity extends Activity {
                     menu("Área segura", new String[]{"Oculta", "80%", "90%", "93%", "95%"}, value -> {
                         int[] sizes = {0, 80, 90, 93, 95};
                         image.safeArea = sizes[value];
-                        image.invalidate();
+                        redrawTools();
                     });
                     break;
                 default: break;
             }
-            image.invalidate();
+            redrawTools();
         });
     }
 
@@ -628,7 +775,7 @@ public final class MonitorActivity extends Activity {
         menu("Análisis de señal USB", options, index -> {
             if (index == modes.length) image.scopeLarge = !image.scopeLarge;
             else image.setScope(modes[index]);
-            image.invalidate();
+            redrawTools();
         });
     }
 
@@ -643,7 +790,7 @@ public final class MonitorActivity extends Activity {
                 image.setLut(null);
             } else if (index == 2) {
                 image.displayMode = image.displayMode == 2 ? 0 : 2;
-                image.invalidate();
+                redrawTools();
             } else {
                 menu("Brillo del monitor", new String[]{"Automático", "30%", "60%", "100%"}, value -> {
                     float[] levels = {-1, 0.3f, 0.6f, 1};
@@ -678,9 +825,9 @@ public final class MonitorActivity extends Activity {
     }
 
     private void moreMenu() {
-        menu("Monitor Lumix", new String[]{"Vista previa USB", "Corrección anamórfica",
+        menu("Herramientas del monitor", new String[]{"Vista previa USB", "Corrección anamórfica",
                 marked("Voltear horizontal", image.flipHorizontal), marked("Voltear vertical", image.flipVertical),
-                "Grabación en el teléfono", "Copiar diagnóstico"}, index -> {
+                "Grabación en el teléfono", "Copiar diagnóstico", "Guías de encuadre", "Color de monitor"}, index -> {
             switch (index) {
                 case 0: quality(); break;
                 case 1:
@@ -694,9 +841,11 @@ public final class MonitorActivity extends Activity {
                 case 3: image.flipVertical = !image.flipVertical; break;
                 case 4: phoneQualityMenu(); break;
                 case 5: copyDiagnostic(); break;
+                case 6: guideMenu(); break;
+                case 7: colorMenu(); break;
                 default: break;
             }
-            image.invalidate();
+            redrawTools();
         });
     }
 
@@ -803,9 +952,10 @@ public final class MonitorActivity extends Activity {
             pendingList = null;
             adjustment.open(setting);
         } else {
-            adjustment.clear();
+            closeAdjustment();
             pendingList = setting;
         }
+        updateActiveDots();
     }
 
     private boolean applySetting(CameraControls.Setting setting, int value) {
@@ -839,7 +989,13 @@ public final class MonitorActivity extends Activity {
             int value = choices.values[i];
             names[i] = marked(setting.label(value), value == choices.current);
         }
-        menu(setting.name + " · " + setting.label(choices.current), names, index -> applySetting(setting, choices.values[index]));
+        listedQuickSetting = setting;
+        updateActiveDots();
+        menu(setting.name + " · " + setting.label(choices.current), names,
+                index -> applySetting(setting, choices.values[index]), () -> {
+                    listedQuickSetting = null;
+                    updateActiveDots();
+                });
     }
 
     private void autofocus() {
@@ -865,35 +1021,11 @@ public final class MonitorActivity extends Activity {
     }
 
     private void updateTouchFocus() {
-        touchFocusButton.setTextColor(touchFocus ? MINT : INK);
-        touchFocusButton.setSelected(touchFocus);
+        setActiveDot(touchFocusButton, touchFocus);
         touchFocusButton.setContentDescription(touchFocus ? "Desactivar AF en el área activa de la Lumix" : "Activar AF en el área activa de la Lumix");
         image.setContentDescription(touchFocus
                 ? "Video. Toca para activar el AF en el área de la Lumix. Mantén pulsado para mostrar u ocultar controles."
                 : "Video. Toca para mostrar u ocultar controles.");
-    }
-
-    private void toggleLevel() {
-        levelEnabled = !levelEnabled;
-        getPreferences(MODE_PRIVATE).edit().putBoolean("phoneLevel", levelEnabled).apply();
-        updateLevelButton();
-        updateLevelSensor();
-    }
-
-    private void updateLevelButton() {
-        levelButton.setTextColor(levelEnabled ? MINT : INK);
-        levelButton.setSelected(levelEnabled);
-        levelButton.setContentDescription(levelEnabled ? "Ocultar nivel del teléfono" : "Mostrar nivel del teléfono");
-    }
-
-    private void updateLevelSensor() {
-        if (levelSensor == null) return;
-        sensors.unregisterListener(levelListener);
-        if (levelEnabled && activityResumed) {
-            sensors.registerListener(levelListener, levelSensor, SensorManager.SENSOR_DELAY_UI);
-        } else {
-            image.setLevel(Float.NaN);
-        }
     }
 
     private void queueBusy() {
@@ -1024,8 +1156,11 @@ public final class MonitorActivity extends Activity {
             UsbVideoFormat mode = formats.get(i);
             names[i] = marked(mode.label(), mode.equals(current));
         }
-        menu("Vista previa USB · modos anunciados", names, index -> {
-            if (preview != null && recorder == null) preview.changeFormat(formats.get(index));
+        menu(status.getText().toString(), names, index -> {
+            if (preview == null || recorder != null) return;
+            requestedUsbFormat = formats.get(index);
+            toast("Solicitado: " + requestedUsbFormat.width + " × " + requestedUsbFormat.height + " · midiendo señal USB");
+            preview.changeFormat(requestedUsbFormat);
         });
     }
 
@@ -1078,6 +1213,7 @@ public final class MonitorActivity extends Activity {
         lastScopeDraw = 0;
         sourceWidth = 0;
         sourceHeight = 0;
+        requestedUsbFormat = null;
         connect.setText("Salir USB");
         connect.setContentDescription("Desconectar la cámara USB");
         connect.setEnabled(true);
@@ -1141,6 +1277,16 @@ public final class MonitorActivity extends Activity {
                 });
             }
 
+            @Override public void onFormatMeasurement(UsbVideoFormat requested, int width, int height, double fps) {
+                ui.post(() -> {
+                    if (!destroyed && frameSeen && requested.equals(requestedUsbFormat)) {
+                        toast(String.format(Locale.getDefault(),
+                                "Solicitado: %d × %d\nUSB recibido: %d × %d · %.1f fps",
+                                requested.width, requested.height, width, height, fps));
+                    }
+                });
+            }
+
             @Override public void onUsbDiagnostic(String detail) {
                 ui.post(() -> { if (!destroyed) log(detail); });
             }
@@ -1182,14 +1328,6 @@ public final class MonitorActivity extends Activity {
                 });
             }
 
-            @Override public void onFocalLength(double mm, String detail) {
-                ui.post(() -> {
-                    if (destroyed || !frameSeen) return;
-                    setFocalDisplay(mm);
-                    log(mm > 0 ? "Focal óptica " + mm + " mm (" + detail + ")" : detail);
-                });
-            }
-
             @Override public void onCameraDiagnostic(String detail) {
                 ui.post(() -> {
                     if (destroyed) return;
@@ -1206,9 +1344,9 @@ public final class MonitorActivity extends Activity {
                     setPreviewPaused(null);
                     image.clearFocusTap();
                     pendingList = null;
-                    adjustment.clear();
+                    closeAdjustment();
                     setQuickControlsEnabled(false);
-                    setFocalDisplay(0);
+                    requestedUsbFormat = null;
                     requestedRecording = null;
                     recordingUnverified = false;
                     setCameraState(CameraControls.RecordingState.UNKNOWN);
@@ -1350,20 +1488,6 @@ public final class MonitorActivity extends Activity {
         clipboard.setPrimaryClip(ClipData.newPlainText("Diagnóstico Monitor Lumix",
                 status.getText() + "\n" + diagnostic));
         Toast.makeText(this, "Diagnóstico copiado", Toast.LENGTH_SHORT).show();
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        activityResumed = true;
-        updateLevelSensor();
-    }
-
-    @Override
-    protected void onPause() {
-        activityResumed = false;
-        updateLevelSensor();
-        super.onPause();
     }
 
     @Override

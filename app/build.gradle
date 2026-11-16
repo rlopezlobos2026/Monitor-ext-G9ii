@@ -10,9 +10,13 @@ android {
         applicationId 'cl.monitorexterno.g9ii.monitor.v05'
         minSdk 33
         targetSdk 34
-        versionCode 5
-        versionName '0.5'
+        versionCode 6
+        versionName '1.0.0'
         testInstrumentationRunner "cl.monitorexterno.g9ii.MonitorSmoke"
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {

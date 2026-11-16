@@ -18,8 +18,8 @@ import android.os.Bundle;
 import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.view.View;
-import android.view.Surface;
 import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import java.io.ByteArrayInputStream;
@@ -100,40 +100,40 @@ public final class MonitorSmoke extends Instrumentation {
         CameraControls.Choices kelvin = CameraControls.documentedKelvinChoices(0x8010, 5575);
         require(kelvin != null && kelvin.current == 5575 && kelvin.permits(2500) && kelvin.permits(10000)
                 && kelvin.permits(5600) && kelvin.permits(5575) && !kelvin.permits(10100), "Rango Kelvin G9 II");
-        byte[] focal = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(17500).array();
-        require(LensTelemetry.ptpFocalLength(focal) == 175.0, "Lectura focal óptica PTP");
-        require(LensTelemetry.ptpFocalLength(new byte[3]) == 0, "Paquete focal incompleto");
     }
 
     private Bitmap testMonitorLayout() throws Exception {
         Intent launch = new Intent(getTargetContext(), MonitorActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         Activity monitor = startActivitySync(launch);
-        require(Math.abs(PhoneLevel.roll(9.81f, 0, Surface.ROTATION_90)) < 0.1f
-                && Math.abs(PhoneLevel.roll(-9.81f, 0, Surface.ROTATION_270)) < 0.1f
-                && Math.abs(PhoneLevel.roll(9.81f, 1, Surface.ROTATION_90)) > 5f
-                && Float.isNaN(PhoneLevel.roll(0.1f, 0.1f, Surface.ROTATION_90)), "Nivel en horizontal");
         try {
             Method quick = MonitorActivity.class.getDeclaredMethod("setQuickControlsEnabled", boolean.class);
             Method value = MonitorActivity.class.getDeclaredMethod("setQuickValue", CameraControls.Setting.class, Integer.class);
-            Method focal = MonitorActivity.class.getDeclaredMethod("setFocalDisplay", double.class);
             quick.setAccessible(true);
             value.setAccessible(true);
-            focal.setAccessible(true);
             MonitorImage image = (MonitorImage) field(monitor, "image");
             View notice = (View) field(monitor, "notice");
             TextView status = (TextView) field(monitor, "status");
-            TextView lens = (TextView) field(monitor, "lensStatus");
             TextView phoneBadge = (TextView) field(monitor, "phoneBadge");
             TextView cameraBadge = (TextView) field(monitor, "cameraBadge");
             Button touch = (Button) field(monitor, "touchFocusButton");
+            Button controlsButton = (Button) field(monitor, "controlsButton");
+            Button scopes = (Button) field(monitor, "scopesTool");
+            Button iso = (Button) ((java.util.Map<?, ?>) field(monitor, "quickButtons")).get(CameraControls.Setting.ISO);
+            LinearLayout bottomQuick = (LinearLayout) field(monitor, "quickControls");
+            LinearLayout sideQuick = (LinearLayout) field(monitor, "sideControls");
+            Method dots = MonitorActivity.class.getDeclaredMethod("updateActiveDots");
+            Method side = MonitorActivity.class.getDeclaredMethod("setControlsOnLeft", boolean.class);
+            Class<?> sizes = field(monitor, "controlSize").getClass();
+            Method size = MonitorActivity.class.getDeclaredMethod("setControlSize", sizes);
+            dots.setAccessible(true);
+            side.setAccessible(true);
+            size.setAccessible(true);
             Field phoneTime = MonitorActivity.class.getDeclaredField("phoneStartedAt");
             Field cameraTime = MonitorActivity.class.getDeclaredField("cameraStartedAt");
             Method display = MonitorActivity.class.getDeclaredMethod("updateRecordingDisplay");
-            Method controls = MonitorActivity.class.getDeclaredMethod("controls", boolean.class);
             phoneTime.setAccessible(true);
             cameraTime.setAccessible(true);
             display.setAccessible(true);
-            controls.setAccessible(true);
             Button connect = (Button) field(monitor, "connect");
             Button cameraPhoto = (Button) field(monitor, "cameraPhoto");
             Button cameraRecord = (Button) field(monitor, "cameraRecord");
@@ -154,12 +154,10 @@ public final class MonitorSmoke extends Instrumentation {
                     value.invoke(monitor, CameraControls.Setting.EXPOSURE, 0);
                     value.invoke(monitor, CameraControls.Setting.WHITE_BALANCE, 0x8010);
                     value.invoke(monitor, CameraControls.Setting.TEMPERATURE, 5600);
-                    focal.invoke(monitor, 125.0);
                     connect.setText("Salir USB");
                     notice.setVisibility(View.GONE);
                     status.setText("USB  1280 × 960 · 30.0 fps");
                     image.zebraA = 50;
-                    image.setLevel(0);
                     image.showFocusTap(image.getWidth() * 0.84f, image.getHeight() * 0.28f);
                     image.showFocusResult(true);
                     phoneTime.setLong(monitor, SystemClock.elapsedRealtime() - 5000);
@@ -189,13 +187,11 @@ public final class MonitorSmoke extends Instrumentation {
                     && cameraPhoto.getRight() <= cameraRecord.getLeft()
                     && "STOP\ncámara".contentEquals(cameraRecord.getText())
                     && !cameraPhoto.isEnabled(), "Foto y grabación de cámara visibles en la barra principal");
-            int[] lensLocation = new int[2];
-            int[] touchLocation = new int[2];
-            lens.getLocationOnScreen(lensLocation);
-            touch.getLocationOnScreen(touchLocation);
-            require(touch.isShown() && lens.getWidth() > 0
-                    && touchLocation[0] >= lensLocation[0] + lens.getWidth(),
-                    "AF táctil visible sin tapar la distancia focal");
+            require(touch.isShown() && status.getWidth() > 0 && controlsButton.isShown(),
+                    "Señal USB y controles principales visibles");
+            require(monitor.getApplicationInfo().loadIcon(monitor.getPackageManager())
+                            instanceof android.graphics.drawable.AdaptiveIconDrawable,
+                    "Ícono adaptativo de Monitor Lumix");
             int[] phoneLocation = new int[2];
             int[] cameraLocation = new int[2];
             int[] panelLocation = new int[2];
@@ -213,15 +209,43 @@ public final class MonitorSmoke extends Instrumentation {
                     screenshot.compress(Bitmap.CompressFormat.PNG, 100, file);
                 }
             }
+            int normalHeight = connect.getHeight();
             runOnMainSync(() -> {
                 try {
-                    controls.invoke(monitor, false);
+                    side.invoke(monitor, true);
+                    size.invoke(monitor, sizes.getEnumConstants()[0]);
+                    panel.open(CameraControls.Setting.ISO);
+                    image.setScope(VideoScopes.Mode.values()[1]);
+                    dots.invoke(monitor);
                 } catch (ReflectiveOperationException failure) {
                     throw new AssertionError(failure);
                 }
             });
-            require(!touch.isShown() && phoneBadge.isShown() && cameraBadge.isShown(),
-                    "Indicadores visibles al ocultar controles");
+            waitForIdleSync();
+            require(Math.abs(2 * connect.getHeight() - normalHeight) <= 2, "Botones pequeños al 50 %");
+            require(iso.getParent() == sideQuick && sideQuick.isShown()
+                    && sideQuick.getChildCount() == 4 && bottomQuick.getChildCount() == 2,
+                    "Cuatro controles en la columna izquierda");
+            require(iso.getForeground() != null && scopes.getForeground() != null,
+                    "Puntos activos para ISO y el histograma");
+            runOnMainSync(() -> controlsButton.performClick());
+            waitForIdleSync();
+            require(!touch.isShown() && !sideQuick.isShown() && controlsButton.isShown()
+                    && phoneBadge.isShown() && cameraBadge.isShown(), "Vista limpia con ambos indicadores REC");
+            runOnMainSync(() -> {
+                controlsButton.performClick();
+                try {
+                    side.invoke(monitor, false);
+                    size.invoke(monitor, sizes.getEnumConstants()[2]);
+                } catch (ReflectiveOperationException failure) {
+                    throw new AssertionError(failure);
+                }
+            });
+            waitForIdleSync();
+            require(Math.abs(connect.getHeight() - Math.round(normalHeight * 1.2f)) <= 2,
+                    "Botones grandes al 120 %");
+            require(iso.getParent() == bottomQuick && iso.getForeground() == null
+                    && scopes.getForeground() != null, "El punto de ISO se apaga al cerrar su panel");
             return frame;
         } finally {
             runOnMainSync(monitor::finish);
