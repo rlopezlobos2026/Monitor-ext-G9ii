@@ -107,6 +107,7 @@ final class MonitorImage extends View {
     volatile VideoScopes.Mode scope = VideoScopes.Mode.OFF;
     boolean scopeLarge;
     boolean controlsVisible;
+    int controlsHeight;
 
     MonitorImage(Context context) {
         super(context);
@@ -315,7 +316,8 @@ final class MonitorImage extends View {
         float width = scopeLarge ? Math.min(getWidth() * 0.58f, 430 * density) : 170 * density;
         float height = scopeLarge ? Math.min(getHeight() * 0.65f, width * 0.62f) : 100 * density;
         float right = getWidth() - 18 * density;
-        float bottom = getHeight() - (controlsVisible ? 64 : 14) * density;
+        float bottom = getHeight() - 14 * density - (controlsVisible ? controlsHeight : 0);
+        if (bottom - height < 8 * density) return;
         scopeArea.set(right - width, bottom - height, right, bottom);
         VideoScopes.draw(canvas, scopeArea, scopeImage, scope, density, drawPaint);
     }

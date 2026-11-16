@@ -2,13 +2,17 @@
 
 Monitor Android para la Panasonic Lumix G9 II por USB‑C directo. La prueba 0.1
 confirmó 640 × 360 y 30 fps recibidos con firmware 2.7 y un Galaxy S24 Ultra
-(SM-S928B) en Android 17. La versión 0.3 se instala aparte para poder comparar con las anteriores.
+(SM-S928B) en Android 17. La versión 0.4 se instala aparte para poder comparar con las anteriores.
 
 ## Usar el monitor
 
 1. Enciende la Lumix, conecta un cable USB‑C de datos y selecciona `PC(Tether)`.
 2. Abre **Monitor Lumix G9 II**, toca **Conectar** y concede el acceso USB.
-3. Tras la primera imagen, los controles se ocultan. Toca el video para volver a mostrarlos.
+3. Los controles se mantienen visibles tras conectar. Toca el video para ocultarlos
+   o mostrarlos. Con **AF al tocar** activo, mantén el dedo pulsado.
+   La banda inferior deja a mano ISO, obturación, diafragma, EV, balance WB y Kelvin.
+   Los ajustes numéricos abren un deslizador en la misma pantalla, con botones
+   −, + y **Aplicar**. Los valores que informa la Lumix se muestran en la banda.
 4. En **Vista**, elige **Ajustar** para ver toda la imagen o **Llenar** para aprovechar
    todo el ancho recortando parte del encuadre. También hay vista píxel a píxel,
    doble toque para ampliar, zoom con dos dedos y arrastre para inspeccionar el encuadre.
@@ -72,9 +76,29 @@ recorte de pantalla. El interruptor no acciona la grabación interna de la Lumix
   que ya está seleccionada en la Lumix. Las LUT en **Color**
   corresponden a la previsualización local.
 
-Los comandos de cámara están pendientes de verificación con un cuerpo físico.
+Las pruebas con la G9 II y Android 17 confirmaron ISO, obturación,
+balance de blancos, REC y STOP de la Lumix y guardado local en el teléfono.
 En el emulador se prueban la interpretación de estados, la serialización de
 los ajustes, las herramientas del monitor y la creación de MP4.
+
+## Kelvin y distancia focal
+
+En **Kelvin**, elige primero **Temperatura 1 a 4** en **Modos WB**. La G9 II
+admite 2500–10000 K. Si la Lumix no entrega la lista por USB, el deslizador
+usa ese rango en pasos de 100 K solo si puede leer un valor Kelvin válido
+y verificar que el WB esté en un modo K. La confirmación del ajuste se lee
+de vuelta por USB.
+
+El recuadro **Focal** muestra los milímetros ópticos cuando el cuerpo los
+informa mediante la propiedad PTP estándar o en los metadatos del fotograma.
+Si no hay un valor disponible, el monitor muestra un guion. Toca el recuadro
+para repetir la consulta. La lectura durante el zoom en la G9 II con el
+45–175 mm requiere una prueba en el equipo físico.
+
+- [Panasonic G9 II, distancia focal durante el zoom](https://eww.pavc.panasonic.co.jp/dscoi/DC-G9M2/html/DC-G9M2_DVQP3010_eng/0044.html)
+- [Panasonic G9 II, ajuste del balance de blancos](https://eww.pavc.panasonic.co.jp/dscoi/DC-G9M2/html/DC-G9M2_DVQP3010_eng/0069.html)
+- [Atomos Shinobi II, controles de cámara](https://support.atomos.com/hc/en-us/articles/10342487969807-Camera-Control)
+- [SmallHD, controles táctiles en PageOS](https://guide.smallhd.com/a/1714451-user-interface-quick-start-touchscreen)
 
 ## Señal de la Lumix G9 II
 

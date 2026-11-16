@@ -4,14 +4,25 @@ import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.ContentResolver;
 import android.content.ContentUris;
+import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Shader;
 import android.graphics.RuntimeShader;
 import android.media.MediaMetadataRetriever;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.view.View;
+import android.widget.Button;
+import android.widget.SeekBar;
 import java.io.ByteArrayInputStream;
+import java.io.FileOutputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -33,6 +44,7 @@ public final class MonitorSmoke extends Instrumentation {
             new RuntimeShader(MonitorImage.EFFECTS);
             testLutAndPtpFormats();
             testCameraControls();
+            testMonitorLayout();
             testRecording();
             output.putString("stream", "\nMONITOR_SMOKE_OK\n");
             finish(Activity.RESULT_OK, output);
@@ -72,6 +84,79 @@ public final class MonitorSmoke extends Instrumentation {
                 "Cambio a diafragma f/2.8");
         require(PhoneVideoQuality.UHD.width == 3840 && PhoneVideoQuality.UHD.height == 2160,
                 "Tamaño de salida UHD");
+        require(CameraControls.documentedKelvinChoices(0x0002, 5500) == null,
+                "El deslizador Kelvin requiere un modo K");
+        require(CameraControls.documentedKelvinChoices(0x8010, null) == null,
+                "El deslizador Kelvin requiere una lectura válida");
+        CameraControls.Choices kelvin = CameraControls.documentedKelvinChoices(0x8010, 5575);
+        require(kelvin != null && kelvin.current == 5575 && kelvin.permits(2500) && kelvin.permits(10000)
+                && kelvin.permits(5600) && kelvin.permits(5575) && !kelvin.permits(10100), "Rango Kelvin G9 II");
+        byte[] focal = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(17500).array();
+        require(LensTelemetry.ptpFocalLength(focal) == 175.0, "Lectura focal óptica PTP");
+        require(LensTelemetry.ptpFocalLength(new byte[3]) == 0, "Paquete focal incompleto");
+    }
+
+    private void testMonitorLayout() throws Exception {
+        Intent launch = new Intent(getTargetContext(), MonitorActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Activity monitor = startActivitySync(launch);
+        try {
+            Method quick = MonitorActivity.class.getDeclaredMethod("setQuickControlsEnabled", boolean.class);
+            Method value = MonitorActivity.class.getDeclaredMethod("setQuickValue", CameraControls.Setting.class, Integer.class);
+            Method focal = MonitorActivity.class.getDeclaredMethod("setFocalDisplay", double.class);
+            quick.setAccessible(true);
+            value.setAccessible(true);
+            focal.setAccessible(true);
+            MonitorImage image = (MonitorImage) field(monitor, "image");
+            View notice = (View) field(monitor, "notice");
+            Button connect = (Button) field(monitor, "connect");
+            View tools = (View) field(monitor, "tools");
+            AdjustmentPanel panel = (AdjustmentPanel) field(monitor, "adjustment");
+            Bitmap frame = Bitmap.createBitmap(640, 360, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(frame);
+            Paint paint = new Paint();
+            paint.setShader(new LinearGradient(0, 0, 640, 360,
+                    0xff2c525d, 0xff806354, Shader.TileMode.CLAMP));
+            canvas.drawPaint(paint);
+            runOnMainSync(() -> {
+                try {
+                    quick.invoke(monitor, true);
+                    value.invoke(monitor, CameraControls.Setting.ISO, 400);
+                    value.invoke(monitor, CameraControls.Setting.SHUTTER, 50000);
+                    value.invoke(monitor, CameraControls.Setting.APERTURE, 40);
+                    value.invoke(monitor, CameraControls.Setting.EXPOSURE, 0);
+                    value.invoke(monitor, CameraControls.Setting.WHITE_BALANCE, 0x8010);
+                    value.invoke(monitor, CameraControls.Setting.TEMPERATURE, 5600);
+                    focal.invoke(monitor, 125.0);
+                    connect.setText("Desconectar");
+                    notice.setVisibility(View.GONE);
+                    image.show(frame, null, VideoScopes.Mode.OFF);
+                    panel.open(CameraControls.Setting.TEMPERATURE);
+                    panel.showChoices(CameraControls.documentedKelvinChoices(0x8010, 5600), "");
+                } catch (ReflectiveOperationException failure) {
+                    throw new AssertionError(failure);
+                }
+            });
+            waitForIdleSync();
+            SeekBar slider = (SeekBar) field(panel, "slider");
+            require(slider.isShown() && slider.getWidth() >= 70 && slider.getMax() == 75,
+                    "Deslizador visible y ajustable");
+            require(tools.getWidth() == image.getWidth() && connect.getWidth() > 0 && connect.isShown(),
+                    "Barra ajustada a la pantalla");
+            Bitmap screenshot = getUiAutomation().takeScreenshot();
+            if (screenshot != null) {
+                try (FileOutputStream file = getTargetContext().openFileOutput("monitor-ui.png", 0)) {
+                    screenshot.compress(Bitmap.CompressFormat.PNG, 100, file);
+                }
+            }
+        } finally {
+            runOnMainSync(monitor::finish);
+        }
+    }
+
+    private static Object field(Object object, String name) throws Exception {
+        Field field = object.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(object);
     }
 
     private void testRecording() throws Exception {

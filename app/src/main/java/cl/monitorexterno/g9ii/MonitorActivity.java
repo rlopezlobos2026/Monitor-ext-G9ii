@@ -33,13 +33,13 @@ import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -47,20 +47,25 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class MonitorActivity extends Activity {
     private static final int IMPORT_LUT = 1;
-    private static final String USB_PERMISSION = "cl.monitorexterno.g9ii.monitor.v03.USB_PERMISSION";
+    private static final String USB_PERMISSION = "cl.monitorexterno.g9ii.monitor.v04.USB_PERMISSION";
     private static final int INK = 0xfff1f8f6;
     private static final int MINT = 0xffacf0dc;
     private final StringBuilder diagnostic = new StringBuilder();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final AtomicReference<VideoFrame> newest = new AtomicReference<>();
     private final AtomicBoolean drawQueued = new AtomicBoolean();
-    private final Runnable hideControls = () -> controls(false);
     private UsbManager usbManager;
     private UsbDevice requesting;
     private LivePreview preview;
     private volatile PhoneRecorder recorder;
     private MonitorImage image;
     private TextView status;
+    private TextView lensStatus;
+    private final EnumMap<CameraControls.Setting, Button> quickButtons = new EnumMap<>(CameraControls.Setting.class);
+    private final EnumMap<CameraControls.Setting, Integer> quickValues = new EnumMap<>(CameraControls.Setting.class);
+    private AdjustmentPanel adjustment;
+    private CameraControls.Setting pendingList;
+    private double focalLength;
     private TextView notice;
     private TextView phoneBadge;
     private TextView cameraBadge;
@@ -78,7 +83,8 @@ public final class MonitorActivity extends Activity {
     private final Runnable recordingDisplayTick = this::updateRecordingDisplay;
     private Button connect;
     private Switch recordSwitch;
-    private HorizontalScrollView tools;
+    private LinearLayout tools;
+    private LinearLayout quickControls;
     private FrameLayout header;
     private boolean showingControls = true;
     private boolean frameSeen;
@@ -118,7 +124,7 @@ public final class MonitorActivity extends Activity {
         buildUi();
         immerse();
         registerReceiver(permissionReceiver, new IntentFilter(USB_PERMISSION), Context.RECEIVER_NOT_EXPORTED);
-        diagnostic.append("Monitor Lumix USB 0.3\n").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
+        diagnostic.append("Monitor Lumix USB 0.4\n").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
                 .append(" | Android ").append(Build.VERSION.RELEASE).append('\n');
         status.setText("USB · Sin cámara");
         showNotice("Conecta la Lumix por USB‑C, selecciona PC(Tether) y toca Conectar.");
@@ -134,12 +140,30 @@ public final class MonitorActivity extends Activity {
         header = new FrameLayout(this);
         FrameLayout.LayoutParams headerPosition = new FrameLayout.LayoutParams(-1, dp(56), Gravity.TOP);
         root.addView(header, headerPosition);
-        status = label(13, MINT);
-        status.setBackground(panel(0xdc0b1718, 18));
-        status.setPadding(dp(14), dp(7), dp(14), dp(7));
-        FrameLayout.LayoutParams statusPosition = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
-        statusPosition.setMargins(dp(14), dp(12), 0, 0);
-        header.addView(status, statusPosition);
+        LinearLayout signal = new LinearLayout(this);
+        signal.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams statusPosition = new FrameLayout.LayoutParams(-2, dp(46), Gravity.TOP | Gravity.START);
+        statusPosition.setMargins(dp(12), dp(5), 0, 0);
+        header.addView(signal, statusPosition);
+        status = label(12, MINT);
+        status.setTypeface(Typeface.MONOSPACE);
+        status.setBackground(panel(0xe81c242d, 8));
+        status.setPadding(dp(11), dp(7), dp(11), dp(7));
+        signal.addView(status);
+        lensStatus = label(13, INK);
+        lensStatus.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+        lensStatus.setBackground(panel(0xea283441, 8));
+        lensStatus.setPadding(dp(10), dp(7), dp(10), dp(7));
+        LinearLayout.LayoutParams lensPosition = new LinearLayout.LayoutParams(-2, -2);
+        lensPosition.leftMargin = dp(6);
+        signal.addView(lensStatus, lensPosition);
+        setFocalDisplay(0);
+        lensStatus.setOnClickListener(view -> {
+            if (preview != null && frameSeen) {
+                preview.refreshFocalLength();
+                if (focalLength <= 0) toast("Consultando la distancia focal óptica por USB.");
+            }
+        });
 
         recordSwitch = new Switch(this);
         recordSwitch.setText(phoneQualityLabel());
@@ -172,7 +196,7 @@ public final class MonitorActivity extends Activity {
         indicators.setOrientation(LinearLayout.VERTICAL);
         indicators.setGravity(Gravity.CENTER_HORIZONTAL);
         FrameLayout.LayoutParams badgePosition = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
-        badgePosition.topMargin = dp(8);
+        badgePosition.topMargin = dp(52);
         root.addView(indicators, badgePosition);
         cameraBadge = recordingBadge(indicators, 0xffc31933);
         phoneBadge = recordingBadge(indicators, 0xff164957);
@@ -186,34 +210,57 @@ public final class MonitorActivity extends Activity {
         noticePosition.setMargins(dp(48), 0, dp(48), 0);
         root.addView(notice, noticePosition);
 
-        tools = new HorizontalScrollView(this);
-        tools.setClipToPadding(false);
-        tools.setHorizontalScrollBarEnabled(false);
-        tools.setPadding(dp(10), dp(4), dp(10), dp(5));
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setGravity(Gravity.CENTER);
-        tools.setFillViewport(true);
-        tools.addView(buttons, new FrameLayout.LayoutParams(-2, -2));
-        connect = tool(buttons, "Conectar", this::connectOrStop);
-        connect.setTextColor(MINT);
-        cameraRecord = tool(buttons, "REC cámara", this::toggleCameraRecording);
-        cameraRecord.setTextColor(0xffff8d99);
-        cameraRecord.setEnabled(false);
-        tool(buttons, "Cámara", this::cameraMenu);
-        tool(buttons, "Vista", this::viewMenu);
-        tool(buttons, "Foco", this::focusMenu);
-        tool(buttons, "Exposición", this::exposureMenu);
-        tool(buttons, "Guías", this::guideMenu);
-        tool(buttons, "Scopes", this::scopeMenu);
-        tool(buttons, "Color", this::colorMenu);
-        tool(buttons, "Más", this::moreMenu);
+        tools = new LinearLayout(this);
+        tools.setOrientation(LinearLayout.VERTICAL);
+        tools.setPadding(dp(9), 0, dp(9), dp(5));
         FrameLayout.LayoutParams toolsPosition = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         root.addView(tools, toolsPosition);
+        tools.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            image.controlsHeight = bottom - top;
+            image.invalidate();
+        });
+
+        adjustment = new AdjustmentPanel(this, this::applySetting, () -> adjustment.clear(),
+                () -> requestSetting(CameraControls.Setting.WHITE_BALANCE));
+        LinearLayout.LayoutParams editorPosition = new LinearLayout.LayoutParams(-1, -2);
+        editorPosition.bottomMargin = dp(4);
+        tools.addView(adjustment, editorPosition);
+
+        quickControls = new LinearLayout(this);
+        quickControls.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams quickPosition = new LinearLayout.LayoutParams(-1, dp(51));
+        quickPosition.bottomMargin = dp(4);
+        tools.addView(quickControls, quickPosition);
+        for (CameraControls.Setting setting : CameraControls.QUICK_SETTINGS) {
+            Button button = tool(quickControls, quickLabel(setting) + "\n—", () -> requestSetting(setting));
+            button.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            button.setTextColor(MINT);
+            button.setBackground(panel(0xee21303b, 8));
+            button.setEnabled(false);
+            quickButtons.put(setting, button);
+        }
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        tools.addView(actions, new LinearLayout.LayoutParams(-1, dp(48)));
+        connect = tool(actions, "Conectar", this::connectOrStop);
+        connect.setTextColor(MINT);
+        cameraRecord = tool(actions, "REC", this::toggleCameraRecording);
+        cameraRecord.setTextColor(0xffff8d99);
+        cameraRecord.setEnabled(false);
+        tool(actions, "Cámara", this::cameraMenu);
+        tool(actions, "Vista", this::viewMenu);
+        tool(actions, "Foco", this::focusMenu);
+        tool(actions, "Exposición", this::exposureMenu);
+        tool(actions, "Guías", this::guideMenu);
+        tool(actions, "Scopes", this::scopeMenu);
+        tool(actions, "Color", this::colorMenu);
+        tool(actions, "Más", this::moreMenu);
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             android.graphics.Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
             header.setPadding(cutout.left, cutout.top, cutout.right, 0);
-            if (badgePosition.topMargin != cutout.top + dp(8)) {
-                badgePosition.topMargin = cutout.top + dp(8);
+            if (badgePosition.topMargin != cutout.top + dp(52)) {
+                badgePosition.topMargin = cutout.top + dp(52);
                 indicators.setLayoutParams(badgePosition);
             }
             FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) header.getLayoutParams();
@@ -222,10 +269,11 @@ public final class MonitorActivity extends Activity {
                 params.height = height;
                 header.setLayoutParams(params);
             }
-            tools.setPadding(dp(10) + cutout.left, dp(4), dp(10) + cutout.right, dp(5) + cutout.bottom);
+            tools.setPadding(dp(9) + cutout.left, 0, dp(9) + cutout.right, dp(5) + cutout.bottom);
             return insets;
         });
         setContentView(root);
+        setQuickControlsEnabled(false);
     }
 
     private void attachGestures() {
@@ -278,19 +326,18 @@ public final class MonitorActivity extends Activity {
         button.setText(text);
         button.setAllCaps(false);
         button.setTextColor(INK);
-        button.setTextSize(13);
-        button.setMinWidth(dp(55));
-        button.setMinimumWidth(dp(55));
-        button.setMinHeight(dp(45));
-        button.setPadding(dp(11), 0, dp(11), 0);
-        button.setBackground(panel(0xe80b1718, 16));
-        LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(-2, dp(45));
-        position.setMargins(dp(3), 0, dp(3), 0);
+        button.setTextSize(12);
+        button.setMaxLines(2);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setMinHeight(0);
+        button.setMinimumHeight(0);
+        button.setPadding(dp(2), 0, dp(2), 0);
+        button.setBackground(panel(0xeb283441, 7));
+        LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(0, -1, 1);
+        position.setMargins(dp(2), 0, dp(2), 0);
         group.addView(button, position);
-        button.setOnClickListener(view -> {
-            ui.removeCallbacks(hideControls);
-            action.run();
-        });
+        button.setOnClickListener(view -> action.run());
         return button;
     }
 
@@ -325,13 +372,58 @@ public final class MonitorActivity extends Activity {
     }
 
     private void controls(boolean visible) {
-        ui.removeCallbacks(hideControls);
         showingControls = visible;
         header.setVisibility(visible ? View.VISIBLE : View.GONE);
         tools.setVisibility(visible ? View.VISIBLE : View.GONE);
+        if (!visible) {
+            adjustment.clear();
+            pendingList = null;
+        }
         image.controlsVisible = visible;
         image.invalidate();
+        if (visible && preview != null && frameSeen) preview.refreshQuickSettings();
         immerse();
+    }
+
+    private void setFocalDisplay(double mm) {
+        focalLength = mm;
+        String value = mm <= 0 ? "—" : new java.text.DecimalFormat("0.#").format(mm) + " mm";
+        lensStatus.setText("Focal " + value);
+        lensStatus.setContentDescription(mm <= 0 ? "Distancia focal sin dato. Toca para consultar."
+                : "Distancia focal óptica " + value);
+    }
+
+    private static String quickLabel(CameraControls.Setting setting) {
+        switch (setting) {
+            case ISO: return "ISO";
+            case SHUTTER: return "Obturación";
+            case APERTURE: return "Diafragma";
+            case EXPOSURE: return "EV";
+            case WHITE_BALANCE: return "Balance WB";
+            case TEMPERATURE: return "Kelvin";
+            default: return setting.name;
+        }
+    }
+
+    private void setQuickValue(CameraControls.Setting setting, Integer value) {
+        Button button = quickButtons.get(setting);
+        if (button == null) return;
+        if (value == null) quickValues.remove(setting);
+        else quickValues.put(setting, value);
+        String label = value == null ? "—" : setting.label(value);
+        if (setting == CameraControls.Setting.WHITE_BALANCE && CameraControls.isKelvinMode(value)) {
+            label = "K" + (value - 0x800f);
+        }
+        button.setText(quickLabel(setting) + "\n" + label);
+        button.setContentDescription(quickLabel(setting) + ", " + label);
+    }
+
+    private void setQuickControlsEnabled(boolean enabled) {
+        for (CameraControls.Setting setting : CameraControls.QUICK_SETTINGS) {
+            quickButtons.get(setting).setEnabled(enabled);
+            if (!enabled) setQuickValue(setting, null);
+        }
+        quickControls.setVisibility(enabled ? View.VISIBLE : View.GONE);
     }
 
     private void immerse() {
@@ -587,7 +679,7 @@ public final class MonitorActivity extends Activity {
                                 + "Las LUT de Color se aplican a la previsualización del teléfono.")
                         .setNeutralButton("Estilos", (dialog, which) -> {
                             if (preview == null || !frameSeen) toast("Conecta la Lumix y espera la imagen.");
-                            else if (!preview.cameraChoices(CameraControls.Setting.PHOTO_STYLE)) queueBusy();
+                            else requestSetting(CameraControls.Setting.PHOTO_STYLE);
                         })
                         .setPositiveButton("Cerrar", null).show();
                 return;
@@ -597,8 +689,7 @@ public final class MonitorActivity extends Activity {
                 return;
             }
             if (index < settings.length) {
-                if (preview.cameraChoices(settings[index])) toast("Consultando " + settings[index].name + ".");
-                else queueBusy();
+                requestSetting(settings[index]);
                 return;
             }
             switch (index - settings.length) {
@@ -630,7 +721,53 @@ public final class MonitorActivity extends Activity {
                 index -> { if (preview != null && frameSeen && !preview.adjustManualFocus(index + 1)) queueBusy(); });
     }
 
+    private void requestSetting(CameraControls.Setting setting) {
+        if (preview == null || !frameSeen) {
+            toast("Conecta la Lumix y espera la imagen.");
+            return;
+        }
+        if (adjustment.waiting()) {
+            toast("Espera la respuesta del ajuste anterior.");
+            return;
+        }
+        if (!preview.cameraChoices(setting)) {
+            queueBusy();
+            return;
+        }
+        boolean inline = setting == CameraControls.Setting.ISO || setting == CameraControls.Setting.SHUTTER
+                || setting == CameraControls.Setting.APERTURE || setting == CameraControls.Setting.EXPOSURE
+                || setting == CameraControls.Setting.TEMPERATURE;
+        if (inline) {
+            pendingList = null;
+            adjustment.open(setting);
+        } else {
+            adjustment.clear();
+            pendingList = setting;
+        }
+    }
+
+    private boolean applySetting(CameraControls.Setting setting, int value) {
+        if (preview == null || !frameSeen) return false;
+        if (preview.changeSetting(setting, value)) return true;
+        queueBusy();
+        return false;
+    }
+
     private void showCameraChoices(CameraControls.Setting setting, CameraControls.Choices choices) {
+        if (choices != null) setQuickValue(setting, choices.current);
+        if (adjustment.isEditing(setting)) {
+            String empty = "La Lumix no ofreció valores ajustables en el modo actual.";
+            if (setting == CameraControls.Setting.TEMPERATURE) {
+                empty = CameraControls.isKelvinMode(quickValues.get(CameraControls.Setting.WHITE_BALANCE))
+                        ? "La Lumix no devolvió un valor Kelvin que se pueda ajustar por USB."
+                        : "Selecciona Temperatura 1 a 4 en Modos WB y vuelve a abrir Kelvin.";
+            }
+            adjustment.showChoices(choices, empty);
+            if (choices == null || choices.values.length == 0) log(setting.name + " · " + empty);
+            return;
+        }
+        if (pendingList != setting) return;
+        pendingList = null;
         if (choices == null || choices.values.length == 0) {
             toast("La Lumix no devolvió valores ajustables de " + setting.name + " en este modo.");
             return;
@@ -640,10 +777,7 @@ public final class MonitorActivity extends Activity {
             int value = choices.values[i];
             names[i] = marked(setting.label(value), value == choices.current);
         }
-        menu(setting.name + " · " + setting.label(choices.current), names, index -> {
-            if (preview == null || !frameSeen) return;
-            if (!preview.changeSetting(setting, choices.values[index])) queueBusy();
-        });
+        menu(setting.name + " · " + setting.label(choices.current), names, index -> applySetting(setting, choices.values[index]));
     }
 
     private void autofocus() {
@@ -732,7 +866,8 @@ public final class MonitorActivity extends Activity {
         }
         phoneBadge.setVisibility(phoneActive ? View.VISIBLE : View.GONE);
         if (phoneActive) phoneBadge.setText("● TELÉFONO  " + clock(now - phoneStartedAt) + "  " + phoneRecordingSize);
-        cameraRecord.setText(cameraActive ? "Detener cámara" : "REC cámara");
+        cameraRecord.setText(cameraActive ? "STOP" : "REC");
+        cameraRecord.setContentDescription(cameraActive ? "Detener grabación de cámara" : "Grabar en la cámara");
         cameraRecord.setEnabled(frameSeen && !pending);
         if (cameraActive || pending || phoneActive) ui.postDelayed(recordingDisplayTick, 250);
     }
@@ -868,6 +1003,31 @@ public final class MonitorActivity extends Activity {
                 ui.post(() -> { if (!destroyed && frameSeen) showCameraChoices(setting, choices); });
             }
 
+            @Override public void onCameraValue(CameraControls.Setting setting, Integer value) {
+                ui.post(() -> { if (!destroyed && frameSeen) setQuickValue(setting, value); });
+            }
+
+            @Override public void onCameraSettingResult(CameraControls.Setting setting, Integer confirmed, String detail) {
+                ui.post(() -> {
+                    if (destroyed || !frameSeen) return;
+                    if (confirmed != null) setQuickValue(setting, confirmed);
+                    if (adjustment.isEditing(setting)) {
+                        adjustment.result(confirmed, detail);
+                        log(detail);
+                    } else {
+                        toast(detail);
+                    }
+                });
+            }
+
+            @Override public void onFocalLength(double mm, String detail) {
+                ui.post(() -> {
+                    if (destroyed || !frameSeen) return;
+                    setFocalDisplay(mm);
+                    log(mm > 0 ? "Focal óptica " + mm + " mm (" + detail + ")" : detail);
+                });
+            }
+
             @Override public void onCameraDiagnostic(String detail) {
                 ui.post(() -> {
                     if (destroyed) return;
@@ -881,6 +1041,10 @@ public final class MonitorActivity extends Activity {
                     preview = null;
                     if (destroyed) return;
                     frameSeen = false;
+                    pendingList = null;
+                    adjustment.clear();
+                    setQuickControlsEnabled(false);
+                    setFocalDisplay(0);
                     requestedRecording = null;
                     recordingUnverified = false;
                     setCameraState(CameraControls.RecordingState.UNKNOWN);
@@ -924,7 +1088,8 @@ public final class MonitorActivity extends Activity {
                 notice.setVisibility(View.GONE);
                 if (recorder == null) recordSwitch.setEnabled(true);
                 updateRecordingDisplay();
-                ui.postDelayed(hideControls, 4000);
+                setQuickControlsEnabled(true);
+                if (preview != null) preview.refreshQuickSettings();
             }
         } finally {
             drawQueued.set(false);
@@ -1018,7 +1183,6 @@ public final class MonitorActivity extends Activity {
     @Override
     protected void onDestroy() {
         destroyed = true;
-        ui.removeCallbacks(hideControls);
         ui.removeCallbacks(recordingDisplayTick);
         if (preview != null) preview.stop();
         stopRecorder();

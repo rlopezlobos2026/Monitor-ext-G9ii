@@ -126,6 +126,11 @@ final class CameraControls {
         }
     }
 
+    static final Setting[] QUICK_SETTINGS = {
+            Setting.ISO, Setting.SHUTTER, Setting.APERTURE, Setting.EXPOSURE,
+            Setting.WHITE_BALANCE, Setting.TEMPERATURE
+    };
+
     static final class Choices {
         final int current;
         final int[] values;
@@ -184,7 +189,42 @@ final class CameraControls {
         return ptp.command(STILL, 0x03000011).panasonicCode();
     }
 
-    static Choices choices(PtpConnection ptp, Setting setting) throws IOException {
+    static Choices choices(PtpConnection ptp, Setting setting, boolean g9ii) throws IOException {
+        Choices available = advertisedChoices(ptp, setting);
+        if (setting == Setting.TEMPERATURE && g9ii && (available == null || available.values.length == 0)) {
+            Integer whiteBalance = current(ptp, Setting.WHITE_BALANCE);
+            if (whiteBalance == null) {
+                Choices wb = advertisedChoices(ptp, Setting.WHITE_BALANCE);
+                if (wb != null) whiteBalance = wb.current;
+            }
+            if (!isKelvinMode(whiteBalance)) return null;
+            Integer kelvin = current(ptp, Setting.TEMPERATURE);
+            if (kelvin == null && available != null) kelvin = available.current;
+            return documentedKelvinChoices(whiteBalance, kelvin);
+        }
+        if (available == null || setting != Setting.ISO) return available;
+        Integer value = current(ptp, setting);
+        return value != null ? new Choices(value, available.values) : available;
+    }
+
+    static boolean isKelvinMode(Integer whiteBalance) {
+        return whiteBalance != null && whiteBalance >= 0x8010 && whiteBalance <= 0x8013;
+    }
+
+    static Choices documentedKelvinChoices(Integer whiteBalance, Integer kelvin) {
+        if (!isKelvinMode(whiteBalance) || kelvin == null || kelvin < 2500 || kelvin > 10000) return null;
+        int[] values = java.util.stream.IntStream.concat(
+                java.util.stream.IntStream.rangeClosed(25, 100).map(hundreds -> hundreds * 100),
+                java.util.stream.IntStream.of(kelvin)).distinct().sorted().toArray();
+        return new Choices(kelvin, values);
+    }
+
+    static Integer current(PtpConnection ptp, Setting setting) throws IOException {
+        PtpConnection.Reply reply = ptp.command(GET_PROPERTY, setting.property);
+        return reply.panasonicCode() == PtpConnection.OK ? scalar(reply.data) : null;
+    }
+
+    private static Choices advertisedChoices(PtpConnection ptp, Setting setting) throws IOException {
         PtpConnection.Reply reply = ptp.command(LIST_PROPERTY, setting.descriptor, 0, 0);
         Choices available = reply.panasonicCode() == PtpConnection.OK ? parseChoices(reply.data, setting.bytes) : null;
         if (available == null && reply.panasonicCode() != PtpConnection.DEVICE_BUSY) {
@@ -192,10 +232,7 @@ final class CameraControls {
             reply = ptp.command(LIST_PROPERTY, alternative);
             available = reply.panasonicCode() == PtpConnection.OK ? parseChoices(reply.data, setting.bytes) : null;
         }
-        if (available == null || setting != Setting.ISO) return available;
-        PtpConnection.Reply current = ptp.command(GET_PROPERTY, setting.property);
-        Integer value = current.panasonicCode() == PtpConnection.OK ? scalar(current.data) : null;
-        return value != null ? new Choices(value, available.values) : available;
+        return available;
     }
 
     static int change(PtpConnection ptp, Setting setting, int value) throws IOException {
