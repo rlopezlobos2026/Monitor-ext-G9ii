@@ -115,6 +115,7 @@ public final class MonitorSmoke extends Instrumentation {
             MonitorImage image = (MonitorImage) field(monitor, "image");
             View notice = (View) field(monitor, "notice");
             TextView status = (TextView) field(monitor, "status");
+            TextView lens = (TextView) field(monitor, "lensStatus");
             TextView phoneBadge = (TextView) field(monitor, "phoneBadge");
             TextView cameraBadge = (TextView) field(monitor, "cameraBadge");
             Button touch = (Button) field(monitor, "touchFocusButton");
@@ -150,7 +151,7 @@ public final class MonitorSmoke extends Instrumentation {
                     status.setText("USB  1280 × 960 · 30.0 fps");
                     image.zebraA = 50;
                     image.setLevel(0);
-                    image.showFocusTap(image.getWidth() * 0.65f, image.getHeight() * 0.35f);
+                    image.showFocusTap(image.getWidth() * 0.84f, image.getHeight() * 0.28f);
                     image.showFocusResult(true);
                     phoneTime.setLong(monitor, SystemClock.elapsedRealtime() - 5000);
                     cameraTime.setLong(monitor, SystemClock.elapsedRealtime() - 1000);
@@ -173,12 +174,21 @@ public final class MonitorSmoke extends Instrumentation {
                     "El valor elegido se lee junto al deslizador");
             require(tools.getWidth() == image.getWidth() && connect.getWidth() > 0 && connect.isShown(),
                     "Barra ajustada a la pantalla");
-            int[] statusLocation = new int[2];
+            int[] lensLocation = new int[2];
             int[] touchLocation = new int[2];
-            status.getLocationOnScreen(statusLocation);
+            lens.getLocationOnScreen(lensLocation);
             touch.getLocationOnScreen(touchLocation);
-            require(touch.isShown() && touchLocation[0] >= statusLocation[0] + status.getWidth(),
-                    "AF táctil visible junto a la señal USB");
+            require(touch.isShown() && lens.getWidth() > 0
+                    && touchLocation[0] >= lensLocation[0] + lens.getWidth(),
+                    "AF táctil visible sin tapar la distancia focal");
+            int[] phoneLocation = new int[2];
+            int[] cameraLocation = new int[2];
+            int[] panelLocation = new int[2];
+            phoneBadge.getLocationOnScreen(phoneLocation);
+            cameraBadge.getLocationOnScreen(cameraLocation);
+            panel.getLocationOnScreen(panelLocation);
+            require(phoneLocation[1] == cameraLocation[1] && phoneLocation[1] + phoneBadge.getHeight() <= panelLocation[1],
+                    "Ambos indicadores quedan encima del deslizador");
             require(phoneBadge.isShown() && phoneBadge.getText().toString().contains("REC TELÉFONO")
                     && cameraBadge.isShown() && cameraBadge.getText().toString().contains("REC CÁMARA"),
                     "Indicadores independientes para ambas grabaciones");

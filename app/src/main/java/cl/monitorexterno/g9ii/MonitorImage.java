@@ -321,7 +321,7 @@ final class MonitorImage extends View {
         canvas.drawLine(x - span, y, x - span + 8 * density, y, drawPaint);
         canvas.drawLine(x + span - 8 * density, y, x + span, y, drawPaint);
         int saved = canvas.save();
-        canvas.rotate(-level, x, y);
+        canvas.rotate(level, x, y);
         drawPaint.setColor(Math.abs(level) <= 1f ? 0xff64f299 : 0xffffca59);
         canvas.drawLine(x - span, y, x - gap, y, drawPaint);
         canvas.drawLine(x + gap, y, x + span, y, drawPaint);

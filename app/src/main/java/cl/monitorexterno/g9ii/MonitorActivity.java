@@ -27,6 +27,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.text.TextUtils;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -168,17 +169,24 @@ public final class MonitorActivity extends Activity {
         header = new FrameLayout(this);
         FrameLayout.LayoutParams headerPosition = new FrameLayout.LayoutParams(-1, dp(56), Gravity.TOP);
         root.addView(header, headerPosition);
+        LinearLayout headerRow = new LinearLayout(this);
+        headerRow.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams headerRowPosition = new FrameLayout.LayoutParams(-1, dp(46), Gravity.TOP);
+        headerRowPosition.setMargins(dp(12), dp(5), dp(12), 0);
+        header.addView(headerRow, headerRowPosition);
         LinearLayout signal = new LinearLayout(this);
         signal.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout.LayoutParams statusPosition = new FrameLayout.LayoutParams(-2, dp(46), Gravity.TOP | Gravity.START);
-        statusPosition.setMargins(dp(12), dp(5), 0, 0);
-        header.addView(signal, statusPosition);
-        status = label(12, MINT);
+        headerRow.addView(signal, new LinearLayout.LayoutParams(0, -1, 1));
+        status = label(11, MINT);
+        status.setSingleLine(true);
+        status.setEllipsize(TextUtils.TruncateAt.END);
         status.setTypeface(Typeface.MONOSPACE);
         status.setBackground(panel(0xe81c242d, 8));
         status.setPadding(dp(11), dp(7), dp(11), dp(7));
         signal.addView(status);
-        lensStatus = label(13, INK);
+        lensStatus = label(12, INK);
+        lensStatus.setSingleLine(true);
+        lensStatus.setEllipsize(TextUtils.TruncateAt.END);
         lensStatus.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
         lensStatus.setBackground(panel(0xea283441, 8));
         lensStatus.setPadding(dp(10), dp(7), dp(10), dp(7));
@@ -195,9 +203,9 @@ public final class MonitorActivity extends Activity {
 
         LinearLayout monitorActions = new LinearLayout(this);
         monitorActions.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout.LayoutParams recordPosition = new FrameLayout.LayoutParams(-2, dp(46), Gravity.TOP | Gravity.END);
-        recordPosition.setMargins(0, dp(5), dp(12), 0);
-        header.addView(monitorActions, recordPosition);
+        LinearLayout.LayoutParams recordPosition = new LinearLayout.LayoutParams(-2, -1);
+        recordPosition.leftMargin = dp(5);
+        headerRow.addView(monitorActions, recordPosition);
         touchFocusButton = headerTool(monitorActions, "AF táctil", this::toggleTouchFocus);
         touchFocusButton.setEnabled(false);
         updateTouchFocus();
@@ -220,7 +228,7 @@ public final class MonitorActivity extends Activity {
             if (checked) startRecorder();
             else stopRecorder();
         });
-        recordSwitch.setContentDescription("Grabar la señal USB en el teléfono, con las ayudas de la app fuera del MP4");
+        recordSwitch.setContentDescription("Grabar en el teléfono");
         monitorActions.addView(recordSwitch, new LinearLayout.LayoutParams(-2, -1));
 
         cameraBorder = new View(this);
@@ -237,8 +245,15 @@ public final class MonitorActivity extends Activity {
         FrameLayout.LayoutParams badgePosition = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
         badgePosition.topMargin = dp(52);
         root.addView(indicators, badgePosition);
-        cameraBadge = recordingBadge(indicators, 0xffc31933);
-        phoneBadge = recordingBadge(indicators, 0xffc31933);
+        LinearLayout recordingIndicators = new LinearLayout(this);
+        recordingIndicators.setGravity(Gravity.CENTER);
+        indicators.addView(recordingIndicators);
+        cameraBadge = recordingBadge(recordingIndicators, 0xffc31933);
+        phoneBadge = recordingBadge(recordingIndicators, 0xffc31933);
+        cameraBadge.setSingleLine(true);
+        phoneBadge.setSingleLine(true);
+        cameraBadge.setEllipsize(TextUtils.TruncateAt.END);
+        phoneBadge.setEllipsize(TextUtils.TruncateAt.END);
         previewPause = recordingBadge(indicators, 0xff604000);
         previewPause.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
 
@@ -297,6 +312,7 @@ public final class MonitorActivity extends Activity {
         tool(actions, "Scopes", this::scopeMenu);
         tool(actions, "Color", this::colorMenu);
         tool(actions, "Más", this::moreMenu);
+        indicators.bringToFront();
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             android.graphics.Insets cutout = insets.getInsets(WindowInsets.Type.displayCutout());
             header.setPadding(cutout.left, cutout.top, cutout.right, 0);
@@ -398,7 +414,7 @@ public final class MonitorActivity extends Activity {
         badge.setBackground(panel(color, 10));
         badge.setVisibility(View.GONE);
         LinearLayout.LayoutParams item = new LinearLayout.LayoutParams(-2, -2);
-        item.bottomMargin = dp(4);
+        item.setMargins(dp(3), 0, dp(3), dp(4));
         group.addView(badge, item);
         return badge;
     }
@@ -438,7 +454,7 @@ public final class MonitorActivity extends Activity {
     private void setFocalDisplay(double mm) {
         focalLength = mm;
         String value = mm <= 0 ? "—" : new java.text.DecimalFormat("0.#").format(mm) + " mm";
-        lensStatus.setText("Focal " + value);
+        lensStatus.setText(mm <= 0 ? "Focal —" : value);
         lensStatus.setContentDescription(mm <= 0 ? "Distancia focal sin dato. Toca para consultar."
                 : "Distancia focal óptica " + value);
     }
@@ -705,8 +721,8 @@ public final class MonitorActivity extends Activity {
     }
 
     private String phoneQualityLabel() {
-        return phoneQuality == PhoneVideoQuality.UHD ? "Grabar en 4K"
-                : phoneQuality == PhoneVideoQuality.FULL_HD ? "Grabar en Full HD" : "Grabar en teléfono";
+        return phoneQuality == PhoneVideoQuality.UHD ? "REC 4K"
+                : phoneQuality == PhoneVideoQuality.FULL_HD ? "REC FHD" : "REC teléfono";
     }
 
     private void cameraMenu() {
@@ -964,7 +980,8 @@ public final class MonitorActivity extends Activity {
                     : pending ? "CÁMARA · esperando confirmación" : "CÁMARA · estado REC sin confirmar");
         }
         phoneBadge.setVisibility(phoneActive ? View.VISIBLE : View.GONE);
-        if (phoneActive) phoneBadge.setText("● REC TELÉFONO  " + clock(now - phoneStartedAt) + "  " + phoneRecordingSize);
+        if (phoneActive) phoneBadge.setText("● REC TELÉFONO  " + clock(now - phoneStartedAt));
+        recordSwitch.setTextColor(phoneActive ? 0xffff8d99 : INK);
         cameraRecord.setText(cameraActive ? "STOP" : "REC");
         cameraRecord.setContentDescription(cameraActive ? "Detener grabación de cámara" : "Grabar en la cámara");
         cameraRecord.setEnabled(frameSeen && !pending);

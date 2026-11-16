@@ -41,7 +41,7 @@ El resultado de exposición se debe contrastar con la medición de la cámara en
 
 ## Grabar en el teléfono
 
-El interruptor **Grabar en teléfono** arranca apagado y se habilita al recibir video.
+El interruptor **REC teléfono** arranca apagado y se habilita al recibir video.
 Enciéndelo para iniciar un clip y apágalo para guardarlo. El indicador rojo
 **REC TELÉFONO** y su contador permanecen visible al ocultar los controles. El MP4 AVC o HEVC se guarda
 en la carpeta `Movies/Monitor Lumix` y aparece en la galería del teléfono. Desconectar
