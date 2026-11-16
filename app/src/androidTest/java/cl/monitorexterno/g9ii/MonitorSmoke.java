@@ -128,6 +128,8 @@ public final class MonitorSmoke extends Instrumentation {
             display.setAccessible(true);
             controls.setAccessible(true);
             Button connect = (Button) field(monitor, "connect");
+            Button cameraPhoto = (Button) field(monitor, "cameraPhoto");
+            Button cameraRecord = (Button) field(monitor, "cameraRecord");
             View tools = (View) field(monitor, "tools");
             AdjustmentPanel panel = (AdjustmentPanel) field(monitor, "adjustment");
             Bitmap frame = Bitmap.createBitmap(640, 360, Bitmap.Config.ARGB_8888);
@@ -174,6 +176,12 @@ public final class MonitorSmoke extends Instrumentation {
                     "El valor elegido se lee junto al deslizador");
             require(tools.getWidth() == image.getWidth() && connect.getWidth() > 0 && connect.isShown(),
                     "Barra ajustada a la pantalla");
+            require(cameraPhoto.isShown() && cameraPhoto.getWidth() > 0
+                    && "Foto".contentEquals(cameraPhoto.getText())
+                    && cameraPhoto.getParent() == cameraRecord.getParent()
+                    && cameraPhoto.getRight() <= cameraRecord.getLeft()
+                    && "STOP\ncámara".contentEquals(cameraRecord.getText())
+                    && !cameraPhoto.isEnabled(), "Foto y grabación de cámara visibles en la barra principal");
             int[] lensLocation = new int[2];
             int[] touchLocation = new int[2];
             lens.getLocationOnScreen(lensLocation);

@@ -75,6 +75,7 @@ public final class MonitorActivity extends Activity {
     private TextView phoneBadge;
     private TextView cameraBadge;
     private View cameraBorder;
+    private Button cameraPhoto;
     private Button cameraRecord;
     private Button touchFocusButton;
     private Button levelButton;
@@ -301,7 +302,13 @@ public final class MonitorActivity extends Activity {
         tools.addView(actions, new LinearLayout.LayoutParams(-1, dp(48)));
         connect = tool(actions, "Conectar", this::connectOrStop);
         connect.setTextColor(MINT);
-        cameraRecord = tool(actions, "REC", this::toggleCameraRecording);
+        cameraPhoto = tool(actions, "Foto", this::shootPhoto);
+        cameraPhoto.setContentDescription("Disparar foto en la Lumix");
+        cameraPhoto.setTextColor(MINT);
+        cameraPhoto.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        cameraPhoto.setEnabled(false);
+        cameraRecord = tool(actions, "REC\ncámara", this::toggleCameraRecording);
+        cameraRecord.setContentDescription("Grabar en la cámara");
         cameraRecord.setTextColor(0xffff8d99);
         cameraRecord.setEnabled(false);
         tool(actions, "Cámara", this::cameraMenu);
@@ -764,11 +771,7 @@ public final class MonitorActivity extends Activity {
                     toggleTouchFocus();
                     break;
                 case 1: autofocus(); break;
-                case 2:
-                    if (cameraState == CameraControls.RecordingState.RECORDING) {
-                        toast("Detén el video de la cámara antes de disparar una foto.");
-                    } else if (!preview.shutter()) queueBusy();
-                    break;
+                case 2: shootPhoto(); break;
                 case 3: cameraRecordingMenu(); break;
                 case 5: if (!preview.inventory()) queueBusy(); break;
                 case 6: manualFocusMenu(); break;
@@ -903,6 +906,17 @@ public final class MonitorActivity extends Activity {
         toast("La cámara tiene órdenes pendientes. Intenta de nuevo en un momento.");
     }
 
+    private void shootPhoto() {
+        if (preview == null || !frameSeen || !connect.isEnabled()) return;
+        if (cameraState == CameraControls.RecordingState.RECORDING) {
+            toast("Detén el video de la cámara antes de disparar una foto.");
+        } else if (requestedRecording != null) {
+            toast("Esperando la respuesta de la Lumix.");
+        } else if (!preview.shutter()) {
+            queueBusy();
+        }
+    }
+
     private void toggleCameraRecording() {
         if (cameraState == CameraControls.RecordingState.RECORDING) sendMovieCommand(false);
         else if (cameraState == CameraControls.RecordingState.READY && !recordingUnverified) sendMovieCommand(true);
@@ -982,9 +996,11 @@ public final class MonitorActivity extends Activity {
         phoneBadge.setVisibility(phoneActive ? View.VISIBLE : View.GONE);
         if (phoneActive) phoneBadge.setText("● REC TELÉFONO  " + clock(now - phoneStartedAt));
         recordSwitch.setTextColor(phoneActive ? 0xffff8d99 : INK);
-        cameraRecord.setText(cameraActive ? "STOP" : "REC");
+        cameraRecord.setText(cameraActive ? "STOP\ncámara" : "REC\ncámara");
         cameraRecord.setContentDescription(cameraActive ? "Detener grabación de cámara" : "Grabar en la cámara");
-        cameraRecord.setEnabled(frameSeen && !pending);
+        boolean cameraActionsReady = frameSeen && connect.isEnabled() && !pending;
+        cameraPhoto.setEnabled(cameraActionsReady && !cameraActive);
+        cameraRecord.setEnabled(cameraActionsReady);
         if (cameraActive || pending || phoneActive) ui.postDelayed(recordingDisplayTick, 250);
     }
 
@@ -1023,6 +1039,7 @@ public final class MonitorActivity extends Activity {
         if (preview != null) {
             stopRecorder();
             connect.setEnabled(false);
+            updateRecordingDisplay();
             recordSwitch.setEnabled(false);
             preview.stop();
             showNotice("Cerrando la sesión USB.");
