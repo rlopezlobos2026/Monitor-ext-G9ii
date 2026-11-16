@@ -27,6 +27,14 @@ final class PtpConnection {
     }
 
     Reply command(int operation, int... arguments) throws IOException {
+        return transact(operation, null, arguments);
+    }
+
+    Reply commandWithData(int operation, byte[] payload, int... arguments) throws IOException {
+        return transact(operation, payload, arguments);
+    }
+
+    private Reply transact(int operation, byte[] outgoing, int... arguments) throws IOException {
         int transaction = nextTransaction++;
         ByteBuffer command = ByteBuffer.allocate(HEADER_SIZE + arguments.length * 4)
                 .order(ByteOrder.LITTLE_ENDIAN);
@@ -35,9 +43,13 @@ final class PtpConnection {
         for (int argument : arguments) {
             command.putInt(argument);
         }
-        byte[] bytes = command.array();
-        if (usb.bulkTransfer(output, bytes, bytes.length, 1500) != bytes.length) {
-            throw new IOException("No se pudo enviar " + hex(operation));
+        write(command.array(), operation);
+        if (outgoing != null) {
+            ByteBuffer container = ByteBuffer.allocate(HEADER_SIZE + outgoing.length)
+                    .order(ByteOrder.LITTLE_ENDIAN);
+            container.putInt(container.capacity()).putShort((short) 2)
+                    .putShort((short) operation).putInt(transaction).put(outgoing);
+            write(container.array(), operation);
         }
 
         byte[] data = null;
@@ -64,6 +76,12 @@ final class PtpConnection {
             }
         }
         throw new IOException("Sin confirmación PTP para " + hex(operation));
+    }
+
+    private void write(byte[] bytes, int operation) throws IOException {
+        if (usb.bulkTransfer(output, bytes, bytes.length, 1500) != bytes.length) {
+            throw new IOException("No se pudo enviar " + hex(operation));
+        }
     }
 
     private void readFully(byte[] destination) throws IOException {

@@ -7,11 +7,12 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'cl.monitorexterno.g9ii'
+        applicationId 'cl.monitorexterno.g9ii.monitor'
         minSdk 33
         targetSdk 34
-        versionCode 1
-        versionName '0.1'
+        versionCode 2
+        versionName '0.2'
+        testInstrumentationRunner "cl.monitorexterno.g9ii.MonitorSmoke"
     }
 
     compileOptions {

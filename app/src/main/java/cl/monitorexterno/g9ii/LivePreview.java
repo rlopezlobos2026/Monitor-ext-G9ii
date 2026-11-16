@@ -10,11 +10,17 @@ import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.os.SystemClock;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 final class LivePreview implements Runnable {
     interface Listener {
         void onPhase(String message);
         void onFrame(Bitmap frame, double fps);
+        void onFormats(List<UsbVideoFormat> formats, UsbVideoFormat current);
+        void onNotice(String message);
         void onFinished(String error);
     }
 
@@ -22,9 +28,17 @@ final class LivePreview implements Runnable {
     private static final int OPEN_SESSION = 0x1002;
     private static final int CLOSE_SESSION = 0x1003;
     private static final int LIVE_VIEW = 0x9412;
+    private final BitmapFactory.Options jpegOptions = new BitmapFactory.Options();
     private static final int READ_FRAME = 0x9706;
     private static final int START_LIVE_VIEW = 0x0d000010;
     private static final int STOP_LIVE_VIEW = 0x0d000011;
+    private static final int GET_FORMATS = 0x9414;
+    private static final int SET_FORMAT = 0x9415;
+    private final AtomicBoolean formatsRequested = new AtomicBoolean();
+    private final AtomicReference<UsbVideoFormat> formatRequested = new AtomicReference<>();
+    private List<UsbVideoFormat> availableFormats = Collections.emptyList();
+    private UsbVideoFormat originalFormat;
+    private UsbVideoFormat activeFormat;
     private final UsbManager manager;
     private final UsbDevice device;
     private final Listener listener;
@@ -38,6 +52,14 @@ final class LivePreview implements Runnable {
 
     void stop() {
         stopped = true;
+    }
+
+    void queryFormats() {
+        formatsRequested.set(true);
+    }
+
+    void changeFormat(UsbVideoFormat mode) {
+        formatRequested.set(mode);
     }
 
     @Override
@@ -93,6 +115,9 @@ final class LivePreview implements Runnable {
                 try {
                     if (previewOn) {
                         ptp.command(LIVE_VIEW, STOP_LIVE_VIEW);
+                        if (originalFormat != null && !originalFormat.equals(activeFormat)) {
+                            ptp.commandWithData(SET_FORMAT, originalFormat.toPayload(), UsbVideoFormat.CURRENT);
+                        }
                     }
                     ptp.command(CLOSE_SESSION);
                 } catch (IOException ignored) {
@@ -144,6 +169,18 @@ final class LivePreview implements Runnable {
         int frameCount = 0;
         double fps = 0;
         while (!stopped) {
+            if (formatsRequested.getAndSet(false)) {
+                readFormats(ptp);
+                lastFrame = SystemClock.elapsedRealtime();
+            }
+            UsbVideoFormat requested = formatRequested.getAndSet(null);
+            if (requested != null && availableFormats.contains(requested)) {
+                applyFormat(ptp, requested);
+                lastFrame = SystemClock.elapsedRealtime();
+                measureStart = lastFrame;
+                frameCount = 0;
+                fps = 0;
+            }
             PtpConnection.Reply reply = ptp.command(READ_FRAME);
             int status = reply.panasonicCode();
             if (status != PtpConnection.DEVICE_BUSY) {
@@ -168,14 +205,42 @@ final class LivePreview implements Runnable {
         }
     }
 
-    static Bitmap readJpeg(byte[] data) {
+    private void readFormats(PtpConnection ptp) throws IOException {
+        PtpConnection.Reply modes = ptp.command(GET_FORMATS, UsbVideoFormat.LIST);
+        availableFormats = modes.panasonicCode() == PtpConnection.OK
+                ? UsbVideoFormat.parseList(modes.data) : Collections.emptyList();
+        if (!availableFormats.isEmpty()) {
+            PtpConnection.Reply current = ptp.command(GET_FORMATS, UsbVideoFormat.CURRENT);
+            if (current.panasonicCode() == PtpConnection.OK) {
+                activeFormat = UsbVideoFormat.parseCurrent(current.data);
+                if (originalFormat == null) originalFormat = activeFormat;
+            }
+        }
+        listener.onFormats(availableFormats, activeFormat);
+    }
+
+    private void applyFormat(PtpConnection ptp, UsbVideoFormat requested) throws IOException {
+        if (requested.equals(activeFormat)) return;
+        PtpConnection.Reply reply = ptp.commandWithData(SET_FORMAT,
+                requested.toPayload(), UsbVideoFormat.CURRENT);
+        if (reply.panasonicCode() == PtpConnection.OK) {
+            activeFormat = requested;
+            listener.onNotice("La cámara aceptó " + requested.label()
+                    + ". La pantalla mostrará el tamaño y la fluidez recibidos.");
+        } else {
+            listener.onNotice("La cámara rechazó ese tamaño (" + PtpConnection.hex(reply.panasonicCode())
+                    + "). Se conserva la configuración anterior.");
+        }
+    }
+
+    private Bitmap readJpeg(byte[] data) {
         if (data == null) {
             return null;
         }
         for (int start = 0; start + 2 < data.length; start++) {
             if ((data[start] & 255) == 255 && (data[start + 1] & 255) == 216
                     && (data[start + 2] & 255) == 255) {
-                Bitmap result = BitmapFactory.decodeByteArray(data, start, data.length - start);
+                Bitmap result = BitmapFactory.decodeByteArray(data, start, data.length - start, jpegOptions);
                 if (result != null) {
                     return result;
                 }

@@ -22,11 +22,29 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Compilar y revisar la APK
-        run: gradle --no-daemon :app:lintDebug :app:assembleDebug
+        run: gradle --no-daemon :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest
       - name: Preparar descargable
-        run: cp app/build/outputs/apk/debug/app-debug.apk Monitor_Lumix_USB.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk Monitor_Lumix_USB_0.2.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Monitor_Lumix_USB
-          path: Monitor_Lumix_USB.apk
+          path: Monitor_Lumix_USB_0.2.apk
           if-no-files-found: error
+      - name: Habilitar KVM para el emulador
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Probar efectos y guardado de MP4
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb install app/build/outputs/apk/debug/app-debug.apk
+            adb install app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w cl.monitorexterno.g9ii.monitor.test/cl.monitorexterno.g9ii.MonitorSmoke | tee monitor-smoke.log
+            grep -F MONITOR_SMOKE_OK monitor-smoke.log
