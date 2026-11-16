@@ -27,6 +27,9 @@ final class CameraControls {
         SHUTTER("Velocidad de obturación", 0x02000030, 0x02000031, 4),
         EXPOSURE("Compensación EV", 0x02000060, 0x02000061, 2),
         WHITE_BALANCE("Balance de blancos", 0x02000051, 0x02000051, 2),
+        TEMPERATURE("Temperatura de color", 0x02000052, 0x02000052, 2),
+        PHOTO_STYLE("Estilo de foto y Real Time LUT", 0x02000010, 0x02000011, 2),
+        IMAGE_ASPECT("Formato de la foto", 0x020000a3, 0x020000a3, 2),
         FOCUS_MODE("Modo de enfoque", 0x02000071, 0x02000071, 2);
 
         final String name;
@@ -45,11 +48,12 @@ final class CameraControls {
             DecimalFormat number = new DecimalFormat("0.###");
             switch (this) {
                 case ISO:
-                    return value == 0 ? "Auto" : Integer.toUnsignedString(value);
+                    return value == 0 || value == -1 ? "Auto" : value == -2 ? "ISO inteligente" : Integer.toUnsignedString(value);
                 case APERTURE:
-                    return value == 0 || value == 0xffff ? "Sin valor" : "f/" + number.format(value / 10.0);
+                    return value == 0 ? "Auto" : value == 0xffff ? "Sin valor" : "f/" + number.format(value / 10.0);
                 case SHUTTER:
-                    if (value == -1) return "Bulb";
+                    if (value == -1 || value == -2) return "Bulb";
+                    if (value == 0x0fffffff || value == 0x0ffffffe) return "Auto";
                     if (value == 0) return "Sin valor";
                     return value < 0 ? number.format((value & Integer.MAX_VALUE) / 1000.0) + " s"
                             : "1/" + number.format(value / 1000.0) + " s";
@@ -57,11 +61,49 @@ final class CameraControls {
                     return number.format(((value & 0x8000) != 0 ? -1 : 1) * (value & 0x7fff) / 3.0) + " EV";
                 case WHITE_BALANCE:
                     return wb(value);
+                case TEMPERATURE:
+                    return value >= 2000 && value <= 15000 ? value + " K" : code(value);
+                case PHOTO_STYLE:
+                    return photoStyle(value);
+                case IMAGE_ASPECT:
+                    switch (value) {
+                        case 1: return "4:3";
+                        case 2: return "3:2";
+                        case 3: return "16:9";
+                        case 4: return "1:1";
+                        case 10: return "65:24";
+                        case 11: return "2:1";
+                        default: return code(value);
+                    }
                 case FOCUS_MODE:
                     String[] modes = {"AF", "Macro AF", "Macro AF (D)", "MF", "AF-S", "AF-C", "AF-F"};
                     return value >= 0 && value < modes.length ? modes[value] : code(value);
                 default:
                     return code(value);
+            }
+        }
+
+        private static String photoStyle(int value) {
+            switch (value) {
+                case 0: return "Estándar";
+                case 1: return "Vívido";
+                case 2: return "Natural";
+                case 3: return "Monocromo";
+                case 4: return "Paisaje";
+                case 5: return "Retrato";
+                case 14: return "Like709";
+                case 15: return "L.Monochrome";
+                case 17: return "L.Monochrome D";
+                case 18: return "Plano";
+                case 40: return "V-Log";
+                case 41: return "Cinelike D2";
+                case 42: return "Cinelike V2";
+                case 44: return "L.Classic Neo";
+                case 45: return "L.Monochrome S";
+                case 49: return "Real Time LUT";
+                case 50: return "LEICA Monochrome";
+                default:
+                    return value >= 19 && value <= 22 ? "Mi estilo de foto " + (value - 18) : code(value);
             }
         }
 
@@ -133,14 +175,23 @@ final class CameraControls {
         return ptp.command(FOCUS, 0x03000024).panasonicCode();
     }
 
+    static int adjustManualFocus(PtpConnection ptp, int step) throws IOException {
+        int property = 0x03010011;
+        return ptp.commandWithData(0x9416, scalarPayload(property, 2, step), property).panasonicCode();
+    }
+
     static int shutter(PtpConnection ptp) throws IOException {
         return ptp.command(STILL, 0x03000011).panasonicCode();
     }
 
     static Choices choices(PtpConnection ptp, Setting setting) throws IOException {
         PtpConnection.Reply reply = ptp.command(LIST_PROPERTY, setting.descriptor, 0, 0);
-        if (reply.panasonicCode() != PtpConnection.OK) return null;
-        Choices available = parseChoices(reply.data, setting.bytes);
+        Choices available = reply.panasonicCode() == PtpConnection.OK ? parseChoices(reply.data, setting.bytes) : null;
+        if (available == null && reply.panasonicCode() != PtpConnection.DEVICE_BUSY) {
+            int alternative = setting == Setting.WHITE_BALANCE ? 0x02000050 : setting.descriptor;
+            reply = ptp.command(LIST_PROPERTY, alternative);
+            available = reply.panasonicCode() == PtpConnection.OK ? parseChoices(reply.data, setting.bytes) : null;
+        }
         if (available == null || setting != Setting.ISO) return available;
         PtpConnection.Reply current = ptp.command(GET_PROPERTY, setting.property);
         Integer value = current.panasonicCode() == PtpConnection.OK ? scalar(current.data) : null;

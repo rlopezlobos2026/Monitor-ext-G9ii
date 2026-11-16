@@ -569,7 +569,7 @@ public final class MonitorActivity extends Activity {
 
     private void cameraMenu() {
         CameraControls.Setting[] settings = CameraControls.Setting.values();
-        String[] names = new String[settings.length + 6];
+        String[] names = new String[settings.length + 7];
         for (int i = 0; i < settings.length; i++) names[i] = settings[i].name;
         names[settings.length] = marked("AF al tocar · área activa", touchFocus);
         names[settings.length + 1] = "AF ahora · área activa";
@@ -577,13 +577,18 @@ public final class MonitorActivity extends Activity {
         names[settings.length + 3] = "Video · iniciar o detener";
         names[settings.length + 4] = "LUT internas de la cámara";
         names[settings.length + 5] = "Consultar capacidades USB";
+        names[settings.length + 6] = "Ajustar foco manual";
         menu("Cámara Lumix", names, index -> {
             if (index == settings.length + 4) {
                 new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
                         .setTitle("LUT internas de la Lumix")
-                        .setMessage("La lista interna se consulta en la cámara, en Biblioteca LUT o REAL TIME LUT. "
-                                + "El protocolo USB disponible todavía no permite leer los nombres ni seleccionar una LUT interna. "
-                                + "Las LUT importadas en Color se aplican a la previsualización del teléfono.")
+                        .setMessage("El estilo Real Time LUT usa la LUT elegida en la Lumix. La lista de archivos "
+                                + "y la selección por nombre se consultan en Biblioteca LUT en la cámara. "
+                                + "Las LUT de Color se aplican a la previsualización del teléfono.")
+                        .setNeutralButton("Estilos", (dialog, which) -> {
+                            if (preview == null || !frameSeen) toast("Conecta la Lumix y espera la imagen.");
+                            else if (!preview.cameraChoices(CameraControls.Setting.PHOTO_STYLE)) queueBusy();
+                        })
                         .setPositiveButton("Cerrar", null).show();
                 return;
             }
@@ -613,9 +618,16 @@ public final class MonitorActivity extends Activity {
                     break;
                 case 3: cameraRecordingMenu(); break;
                 case 5: if (!preview.inventory()) queueBusy(); break;
+                case 6: manualFocusMenu(); break;
                 default: break;
             }
         });
+    }
+
+    private void manualFocusMenu() {
+        menu("Enfoque manual · selecciona MF en la Lumix",
+                new String[]{"Lejos · paso grande", "Lejos · paso fino", "Cerca · paso fino", "Cerca · paso grande"},
+                index -> { if (preview != null && frameSeen && !preview.adjustManualFocus(index + 1)) queueBusy(); });
     }
 
     private void showCameraChoices(CameraControls.Setting setting, CameraControls.Choices choices) {

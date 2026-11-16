@@ -46,6 +46,8 @@ final class LivePreview implements Runnable {
     private final ArrayBlockingQueue<CameraRequest> cameraRequests = new ArrayBlockingQueue<>(6);
     private final AtomicBoolean statusRequested = new AtomicBoolean();
     private boolean canPollRecording = true;
+    private boolean triedVendorSession;
+    private boolean vendorSessionOpen;
     private long nextRecordingPoll;
     private CameraControls.RecordingState reportedRecording;
     private CameraControls.Setting listedSetting;
@@ -91,6 +93,11 @@ final class LivePreview implements Runnable {
 
     boolean autoFocus() {
         return cameraRequests.offer(ptp -> cameraResult("AF en el área activa", CameraControls.autoFocus(ptp)));
+    }
+
+    boolean adjustManualFocus(int step) {
+        if (step < 1 || step > 4) return false;
+        return cameraRequests.offer(ptp -> cameraResult("Enfoque manual", CameraControls.adjustManualFocus(ptp, step)));
     }
 
     boolean shutter() {
@@ -194,6 +201,7 @@ final class LivePreview implements Runnable {
                             ptp.commandWithData(SET_FORMAT, originalFormat.toPayload(), UsbVideoFormat.CURRENT);
                         }
                     }
+                    if (vendorSessionOpen) ptp.command(0x9103, 0x00010001);
                     ptp.command(CLOSE_SESSION);
                 } catch (IOException ignored) {
                     // The cable may already have been disconnected.
@@ -294,6 +302,11 @@ final class LivePreview implements Runnable {
 
     private void pollRecording(PtpConnection ptp) throws IOException {
         CameraControls.State state = CameraControls.readRecording(ptp);
+        if (state.response == 0x2003 && !triedVendorSession) {
+            triedVendorSession = true;
+            vendorSessionOpen = ptp.command(0x9102, 0x00010001).panasonicCode() == PtpConnection.OK;
+            if (vendorSessionOpen) state = CameraControls.readRecording(ptp);
+        }
         long now = SystemClock.elapsedRealtime();
         nextRecordingPoll = now + 450;
         // A busy reply can be transient when the camera is saving or changing modes.

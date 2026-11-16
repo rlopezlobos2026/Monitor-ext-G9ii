@@ -50,13 +50,15 @@ recorte de pantalla. El interruptor no acciona la grabación interna de la Lumix
 ## Controles de cámara por USB
 
 - **Cámara** consulta los valores que la Lumix anuncia para ISO, diafragma,
-  obturación, compensación EV, balance de blancos y modo de enfoque. La app
+  obturación, compensación EV, balance de blancos, Kelvin, estilo de foto,
+  formato y modo de enfoque. La app
   escribe únicamente valores de esa lista. La disponibilidad depende del modo
   y del lente.
 - **AF ahora** envía una orden de enfoque puntual en el área activa de la
   Lumix. **AF al tocar** permite enviar la misma orden tocando el video.
   Mantén el dedo pulsado para mostrar u ocultar los controles. El toque
-  todavía no desplaza el área AF de la cámara.
+  todavía no desplaza el área AF de la cámara. El menú incluye pasos de
+  enfoque manual, que la cámara puede aceptar cuando está en MF.
 - **REC cámara** inicia o detiene la grabación interna. La app consulta el
   estado por USB, también cuando la grabación se inicia desde el cuerpo.
   El marco rojo se muestra cuando la cámara confirma REC. El contador mide
@@ -65,7 +67,9 @@ recorte de pantalla. El interruptor no acciona la grabación interna de la Lumix
 - **Disparar foto** envía la orden de obturador a la Lumix.
 - **Consultar capacidades USB** registra respuestas de identificación,
   área AF y estilo de foto. La selección y los nombres de la **Biblioteca LUT**
-  interna siguen disponibles en la cámara o en LUMIX Lab. Las LUT en **Color**
+  interna siguen disponibles en la cámara o en LUMIX Lab. Si la cámara
+  anuncia **Real Time LUT** como estilo, es posible activarlo y usar la LUT
+  que ya está seleccionada en la Lumix. Las LUT en **Color**
   corresponden a la previsualización local.
 
 Los comandos de cámara están pendientes de verificación con un cuerpo físico.
@@ -85,6 +89,7 @@ distinta y admite C4K/4K hasta 50/59.94p según el modo. La vista previa por
 - [Salida de video HDMI](https://eww.pavc.panasonic.co.jp/dscoi/DC-G9M2/html/DC-G9M2_DVQP3010_eng/0100.html)
 - [Registro MP4 Lite](https://eww.pavc.panasonic.co.jp/dscoi/DC-G9M2/html/DC-G9M2_DVQP3010_eng/0176.html)
 - [Referencia de herramientas de monitor](https://www.atomos.com/tech-specs/shinobi-ii/)
+- [Controles Panasonic sobre USB en Tethr](https://github.com/baku89/tethr/blob/main/core/src/TethrPTPUSB/TethrPanasonic.ts)
 - [Comandos de vista previa PTP en libgphoto2](https://github.com/gphoto/libgphoto2/tree/master/camlibs/ptp2)
 
 ## Compilar
