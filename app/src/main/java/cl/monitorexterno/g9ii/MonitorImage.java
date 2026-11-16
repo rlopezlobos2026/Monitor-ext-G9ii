@@ -10,6 +10,7 @@ import android.graphics.RectF;
 import android.graphics.RuntimeShader;
 import android.graphics.Shader;
 import android.util.Log;
+import android.os.SystemClock;
 import android.view.View;
 
 final class MonitorImage extends View {
@@ -108,6 +109,12 @@ final class MonitorImage extends View {
     boolean scopeLarge;
     boolean controlsVisible;
     int controlsHeight;
+    private float level = Float.NaN;
+    private float focusX;
+    private float focusY;
+    private int focusColor;
+    private String focusLabel;
+    private long focusUntil;
 
     MonitorImage(Context context) {
         super(context);
@@ -140,6 +147,36 @@ final class MonitorImage extends View {
 
     boolean isPictureAt(float x, float y) {
         return image != null && destination.contains(x, y);
+    }
+
+    void setLevel(float angle) {
+        if (Float.compare(level, angle) == 0) return;
+        level = angle;
+        invalidate();
+    }
+
+    void showFocusTap(float x, float y) {
+        focusX = x;
+        focusY = y;
+        focusColor = 0xffffca59;
+        focusLabel = "AF · solicitando";
+        focusUntil = SystemClock.uptimeMillis() + 1600;
+        invalidate();
+        postInvalidateDelayed(1600);
+    }
+
+    void showFocusResult(boolean accepted) {
+        if (SystemClock.uptimeMillis() >= focusUntil) return;
+        focusColor = accepted ? 0xff79f9b3 : 0xffff6976;
+        focusLabel = accepted ? "AF · orden aceptada" : "AF · orden rechazada";
+        focusUntil = SystemClock.uptimeMillis() + 1300;
+        invalidate();
+        postInvalidateDelayed(1300);
+    }
+
+    void clearFocusTap() {
+        focusUntil = 0;
+        invalidate();
     }
 
     void resetZoom() {
@@ -196,6 +233,8 @@ final class MonitorImage extends View {
             canvas.restoreToCount(previous);
         }
         drawGuides(canvas);
+        drawLevel(canvas);
+        drawFocusTap(canvas);
         if (displayMode == 1 && !shaderFailed) drawColorScale(canvas);
         if (scope != VideoScopes.Mode.OFF && scopeImage != null) drawScope(canvas);
     }
@@ -249,6 +288,45 @@ final class MonitorImage extends View {
         canvas.drawRect(0, 0, image.getWidth(), image.getHeight(), imagePaint);
         canvas.restoreToCount(previous);
         return true;
+    }
+
+    private void drawFocusTap(Canvas canvas) {
+        if (SystemClock.uptimeMillis() >= focusUntil) return;
+        float half = 19 * density;
+        drawPaint.setColor(focusColor);
+        drawPaint.setStrokeWidth(2 * density);
+        drawPaint.setStyle(Paint.Style.STROKE);
+        drawPaint.setShadowLayer(2 * density, 0, 0, Color.BLACK);
+        canvas.drawRoundRect(focusX - half, focusY - half, focusX + half, focusY + half,
+                3 * density, 3 * density, drawPaint);
+        drawPaint.setStyle(Paint.Style.FILL);
+        drawPaint.setTextSize(11 * density);
+        float width = drawPaint.measureText(focusLabel);
+        float x = Math.max(4 * density, Math.min(focusX - width / 2, getWidth() - width - 4 * density));
+        float y = focusY - half - 7 * density;
+        if (y < 16 * density) y = focusY + half + 16 * density;
+        canvas.drawText(focusLabel, x, y, drawPaint);
+        drawPaint.clearShadowLayer();
+    }
+
+    private void drawLevel(Canvas canvas) {
+        if (Float.isNaN(level)) return;
+        float x = getWidth() / 2f;
+        float y = getHeight() / 2f;
+        float span = Math.min(destination.width(), getWidth()) * 0.18f;
+        float gap = 14 * density;
+        drawPaint.setStrokeWidth(2 * density);
+        drawPaint.setShadowLayer(2 * density, 0, 0, Color.BLACK);
+        drawPaint.setColor(0xccffffff);
+        canvas.drawLine(x - span, y, x - span + 8 * density, y, drawPaint);
+        canvas.drawLine(x + span - 8 * density, y, x + span, y, drawPaint);
+        int saved = canvas.save();
+        canvas.rotate(-level, x, y);
+        drawPaint.setColor(Math.abs(level) <= 1f ? 0xff64f299 : 0xffffca59);
+        canvas.drawLine(x - span, y, x - gap, y, drawPaint);
+        canvas.drawLine(x + gap, y, x + span, y, drawPaint);
+        canvas.restoreToCount(saved);
+        drawPaint.clearShadowLayer();
     }
 
     private void drawGuides(Canvas canvas) {

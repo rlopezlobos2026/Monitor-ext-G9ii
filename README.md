@@ -2,14 +2,16 @@
 
 Monitor Android para la Panasonic Lumix G9 II por USB‑C directo. La prueba 0.1
 confirmó 640 × 360 y 30 fps recibidos con firmware 2.7 y un Galaxy S24 Ultra
-(SM-S928B) en Android 17. La versión 0.4 se instala aparte para poder comparar con las anteriores.
+(SM-S928B) en Android 17. La versión 0.5 se instala aparte para poder comparar con las anteriores.
 
 ## Usar el monitor
 
 1. Enciende la Lumix, conecta un cable USB‑C de datos y selecciona `PC(Tether)`.
 2. Abre **Monitor Lumix G9 II**, toca **Conectar** y concede el acceso USB.
-3. Los controles se mantienen visibles tras conectar. Toca el video para ocultarlos
-   o mostrarlos. Con **AF al tocar** activo, mantén el dedo pulsado.
+3. **AF táctil** está en la barra superior y arranca activo. Toca el video para
+   enviar la orden de enfoque y mantén el dedo pulsado para ocultar o mostrar los
+   controles. **Nivel** muestra la inclinación del teléfono. Si está montado
+   alineado con la Lumix, sirve para nivelar el conjunto.
    La banda inferior deja a mano ISO, obturación, diafragma, EV, balance WB y Kelvin.
    Los ajustes numéricos abren un deslizador en la misma pantalla, con botones
    −, + y **Aplicar**. Los valores que informa la Lumix se muestran en la banda.
@@ -41,15 +43,17 @@ El resultado de exposición se debe contrastar con la medición de la cámara en
 
 El interruptor **Grabar en teléfono** arranca apagado y se habilita al recibir video.
 Enciéndelo para iniciar un clip y apágalo para guardarlo. El indicador rojo
-**REC · TELÉFONO** permanece visible al ocultar los controles. El MP4 AVC o HEVC se guarda
+**REC TELÉFONO** y su contador permanecen visible al ocultar los controles. El MP4 AVC o HEVC se guarda
 en la carpeta `Movies/Monitor Lumix` y aparece en la galería del teléfono. Desconectar
 desde la app, quitar el cable o salir al fondo finaliza la grabación si el archivo se
 puede cerrar. En **Más → Grabación en el teléfono** elige el tamaño según la señal USB, Full HD
 o 4K UHD (3840 × 2160, cuando el codificador del teléfono lo permite). La tasa
 configurada es 30 fps. Si la señal USB es menor, el resultado se amplía para
 llenar la mayor área posible del MP4 conservando el aspecto. La ampliación
-mantiene el detalle original. Se guarda sin audio, gráficos, LUT ni
-recorte de pantalla. El interruptor no acciona la grabación interna de la Lumix.
+mantiene el detalle original. El MP4 se codifica directamente a partir de la
+señal USB, sin audio ni las ayudas de la app, incluidas zebras, guías, nivel y LUT.
+Si la Lumix incorpora gráficos en la señal que entrega, esos gráficos forman parte
+de la imagen. El interruptor no acciona la grabación interna de la Lumix.
 
 ## Controles de cámara por USB
 
@@ -59,15 +63,18 @@ recorte de pantalla. El interruptor no acciona la grabación interna de la Lumix
   escribe únicamente valores de esa lista. La disponibilidad depende del modo
   y del lente.
 - **AF ahora** envía una orden de enfoque puntual en el área activa de la
-  Lumix. **AF al tocar** permite enviar la misma orden tocando el video.
-  Mantén el dedo pulsado para mostrar u ocultar los controles. El toque
-  todavía no desplaza el área AF de la cámara. El menú incluye pasos de
+  Lumix. **AF táctil** permite enviar la misma orden tocando el video. El
+  recuadro sigue el punto tocado y se ilumina si la cámara acepta la orden.
+  El comando disponible enfoca usando el área activa seleccionada en la Lumix.
+  El menú incluye pasos de
   enfoque manual, que la cámara puede aceptar cuando está en MF.
 - **REC cámara** inicia o detiene la grabación interna. La app consulta el
   estado por USB, también cuando la grabación se inicia desde el cuerpo.
   El marco rojo se muestra cuando la cámara confirma REC. El contador mide
   tiempo desde la primera confirmación observada. La app muestra un aviso si
   la cámara acepta la orden y no envía un estado que la confirme.
+- **Calidad de video en la Lumix** consulta y registra los datos USB de calidad
+  interna. La selección se realiza en **Calidad grab.** en la cámara.
 - **Disparar foto** envía la orden de obturador a la Lumix.
 - **Consultar capacidades USB** registra respuestas de identificación,
   área AF y estilo de foto. La selección y los nombres de la **Biblioteca LUT**
@@ -106,8 +113,10 @@ Panasonic documenta grabación de 5760 × 4320 (5.8K), 5728 × 3024 (5.7K),
 4352 × 3264 (4.4K), 4096 × 2160 (C4K), 3840 × 2160 (4K UHD),
 3840 × 2880 (3.8K MP4 Lite) y 1920 × 1080 (FHD). Las frecuencias y formas de
 almacenamiento dependen del modo. La salida HDMI estándar es una interfaz
-distinta y admite C4K/4K hasta 50/59.94p según el modo. La vista previa por
-`PC(Tether)` se comprueba en el dispositivo y el manual no publica un modo USB 4K.
+distinta y admite C4K/4K hasta 50/59.94p según el modo. En la sesión
+USB de firmware 2.7 la cámara anunció 1280 × 960, 960 × 720 y 640 × 480
+a 30 fps nominales. La imagen inicial recibida en video 16:9 fue 640 × 360.
+La app muestra en la barra superior el tamaño real del fotograma que recibe.
 
 - [Manual de la G9 II](https://eww.pavc.panasonic.co.jp/dscoi/DC-G9M2/pdf/DC-G9M2_DVQP3010_full_eng.pdf)
 - [Salida de video HDMI](https://eww.pavc.panasonic.co.jp/dscoi/DC-G9M2/html/DC-G9M2_DVQP3010_eng/0100.html)

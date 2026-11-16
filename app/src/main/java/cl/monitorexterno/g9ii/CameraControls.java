@@ -18,6 +18,8 @@ final class CameraControls {
     private static final int RECORDING_STATUS = 0x12000013;
     private static final int AF_AREA = 0x02000072;
     private static final int PHOTO_STYLE = 0x02000010;
+    private static final int MOVIE_QUALITY_MODE = 0x06000013;
+    private static final int MOVIE_RECORDING_MODE = 0x06000014;
 
     enum RecordingState { UNKNOWN, READY, RECORDING, BUSY }
 
@@ -273,6 +275,18 @@ final class CameraControls {
 
     private static int number(ByteBuffer buffer, int width) {
         return width == 2 ? Short.toUnsignedInt(buffer.getShort()) : buffer.getInt();
+    }
+
+    static String movieQualityDiagnostic(PtpConnection ptp) throws IOException {
+        PtpConnection.Reply choices = ptp.command(LIST_PROPERTY, MOVIE_QUALITY_MODE, 0, 0);
+        if (choices.panasonicCode() != PtpConnection.OK && choices.panasonicCode() != PtpConnection.DEVICE_BUSY) {
+            choices = ptp.command(LIST_PROPERTY, MOVIE_QUALITY_MODE);
+        }
+        PtpConnection.Reply quality = ptp.command(GET_PROPERTY, MOVIE_QUALITY_MODE);
+        PtpConnection.Reply mode = ptp.command(GET_PROPERTY, MOVIE_RECORDING_MODE);
+        return "Calidad de video interna por USB\nLista 0x06000013 " + response(choices) + dump(choices.data)
+                + "\nValor 0x06000013 " + response(quality) + dump(quality.data)
+                + "\nModo 0x06000014 " + response(mode) + dump(mode.data);
     }
 
     static String inventory(PtpConnection ptp) throws IOException {

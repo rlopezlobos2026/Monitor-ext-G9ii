@@ -20,6 +20,9 @@ final class LivePreview implements Runnable {
     interface Listener {
         void onPhase(String message);
         void onFrame(Bitmap frame, double fps);
+        void onAutofocusResult(long request, int response);
+        void onPreviewPause(String reason);
+        void onMovieQuality(String detail);
         void onFormats(List<UsbVideoFormat> formats, UsbVideoFormat current);
         void onNotice(String message);
         void onRecordingState(CameraControls.RecordingState state, String diagnostic);
@@ -63,6 +66,7 @@ final class LivePreview implements Runnable {
     private boolean triedVendorSession;
     private boolean vendorSessionOpen;
     private long nextRecordingPoll;
+    private long recordingPolledAt;
     private CameraControls.RecordingState reportedRecording;
     private CameraControls.Setting listedSetting;
     private CameraControls.Choices listedChoices;
@@ -106,8 +110,12 @@ final class LivePreview implements Runnable {
         });
     }
 
-    boolean autoFocus() {
-        return cameraRequests.offer(ptp -> cameraResult("AF en el área activa", CameraControls.autoFocus(ptp)));
+    boolean autoFocus(long request) {
+        return cameraRequests.offer(ptp -> listener.onAutofocusResult(request, CameraControls.autoFocus(ptp)));
+    }
+
+    boolean queryMovieQuality() {
+        return cameraRequests.offer(ptp -> listener.onMovieQuality(CameraControls.movieQualityDiagnostic(ptp)));
     }
 
     boolean adjustManualFocus(int step) {
@@ -286,55 +294,89 @@ final class LivePreview implements Runnable {
         nextFocalPoll = lastFrame + 2000;
         int frameCount = 0;
         double fps = 0;
+        boolean hasReceivedFrame = false;
+        boolean paused = false;
+        long nextRecovery = lastFrame + 5000;
+        int recoveries = 0;
         while (!stopped) {
             CameraRequest cameraRequest = cameraRequests.poll();
-            if (cameraRequest != null) {
-                cameraRequest.run(ptp);
-                lastFrame = SystemClock.elapsedRealtime();
-            }
+            if (cameraRequest != null) cameraRequest.run(ptp);
             if (statusRequested.getAndSet(false)) {
                 canPollRecording = true;
                 nextRecordingPoll = 0;
             }
-            long thisFrame = SystemClock.elapsedRealtime();
-            if (frameCount > 0 && canPollRecording && thisFrame >= nextRecordingPoll) {
+            long now = SystemClock.elapsedRealtime();
+            if ((hasReceivedFrame || now - lastFrame > 2000) && canPollRecording && now >= nextRecordingPoll) {
                 pollRecording(ptp);
-            } else if (cameraRequest == null) {
-                pollTelemetry(ptp, thisFrame);
+            } else if (hasReceivedFrame && !paused && cameraRequest == null) {
+                pollTelemetry(ptp, now);
             }
-            if (formatsRequested.getAndSet(false)) {
-                readFormats(ptp);
-                lastFrame = SystemClock.elapsedRealtime();
-            }
+            if (formatsRequested.getAndSet(false)) readFormats(ptp);
             UsbVideoFormat requested = formatRequested.getAndSet(null);
             if (requested != null && availableFormats.contains(requested)) {
                 applyFormat(ptp, requested);
                 lastFrame = SystemClock.elapsedRealtime();
                 measureStart = lastFrame;
+                nextRecovery = lastFrame + 5000;
                 frameCount = 0;
                 fps = 0;
             }
             PtpConnection.Reply reply = ptp.command(READ_FRAME);
             int status = reply.panasonicCode();
-            if (status != PtpConnection.DEVICE_BUSY) {
-                requireOk("Leer imagen", status);
-                Bitmap frame = readJpeg(reply.data);
-                if (frame != null) {
-                    lastFrame = SystemClock.elapsedRealtime();
-                    frameCount++;
-                    if (lastFrame - measureStart >= 1000) {
-                        fps = frameCount * 1000.0 / (lastFrame - measureStart);
-                        measureStart = lastFrame;
-                        frameCount = 0;
-                    }
-                    listener.onFrame(frame, fps);
-                    continue;
+            Bitmap frame = status == PtpConnection.OK ? readJpeg(reply.data) : null;
+            now = SystemClock.elapsedRealtime();
+            if (frame != null) {
+                if (paused) {
+                    paused = false;
+                    listener.onPreviewPause(null);
+                    measureStart = now;
+                    frameCount = 0;
+                    fps = 0;
                 }
+                hasReceivedFrame = true;
+                lastFrame = now;
+                nextRecovery = now + 5000;
+                recoveries = 0;
+                frameCount++;
+                if (now - measureStart >= 1000) {
+                    fps = frameCount * 1000.0 / (now - measureStart);
+                    measureStart = now;
+                    frameCount = 0;
+                }
+                listener.onFrame(frame, fps);
+                continue;
             }
-            if (SystemClock.elapsedRealtime() - lastFrame >= 5000) {
-                throw new PreviewException("La Lumix respondió, pero no llegó una imagen JPEG en cinco segundos.");
+            boolean freshState = recordingPolledAt != 0 && now - recordingPolledAt < 2500;
+            boolean cameraOccupied = freshState && (reportedRecording == CameraControls.RecordingState.BUSY
+                    || reportedRecording == CameraControls.RecordingState.RECORDING);
+            if (!cameraOccupied && status != PtpConnection.OK && status != PtpConnection.DEVICE_BUSY) {
+                requireOk("Leer imagen", status);
+            }
+            if (now - lastFrame >= 2000 && !paused) {
+                paused = true;
+                listener.onPreviewPause("VISTA USB · esperando imagen");
+            }
+            if (now >= nextRecovery && freshState && reportedRecording == CameraControls.RecordingState.READY
+                    && recoveries < 2 && status != PtpConnection.DEVICE_BUSY) {
+                listener.onPreviewPause("VISTA USB · recuperando señal");
+                restartView(ptp);
+                recoveries++;
+                nextRecovery = SystemClock.elapsedRealtime() + 5000;
+            }
+            if (now - lastFrame >= 15000 && !cameraOccupied && status != PtpConnection.DEVICE_BUSY
+                    && now >= nextRecovery) {
+                throw new PreviewException("Se interrumpió la vista USB. Vuelve a conectar desde el monitor.");
             }
             SystemClock.sleep(40);
+        }
+    }
+
+    private void restartView(PtpConnection ptp) throws IOException {
+        ptp.command(LIVE_VIEW, STOP_LIVE_VIEW);
+        if (stopped) return;
+        int status = ptp.command(LIVE_VIEW, START_LIVE_VIEW).panasonicCode();
+        if (status != PtpConnection.OK && status != PtpConnection.DEVICE_BUSY) {
+            listener.onNotice("La Lumix respondió " + PtpConnection.hex(status) + " al reiniciar la vista USB.");
         }
     }
 
@@ -383,7 +425,8 @@ final class LivePreview implements Runnable {
         nextRecordingPoll = now + 450;
         // A busy reply can be transient when the camera is saving or changing modes.
         if (state.response == PtpConnection.DEVICE_BUSY) return;
-        if (!state.recognized) canPollRecording = false;
+        if (state.recognized) recordingPolledAt = now;
+        else canPollRecording = false;
         if (reportedRecording != state.recording || !state.recognized) {
             reportedRecording = state.recording;
             String diagnostic = state.recognized ? "Estado de video: " + state.recording

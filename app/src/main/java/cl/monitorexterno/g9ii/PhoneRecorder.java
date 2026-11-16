@@ -54,7 +54,8 @@ final class PhoneRecorder {
         handler.post(() -> begin(profile));
     }
 
-    void submit(Bitmap image, long timestamp) {
+    // Use the decoded USB bitmap. The monitor composites its aids separately.
+    void submitCleanFrame(Bitmap image, long timestamp) {
         if (!accepting) return;
         latest.set(new Frame(image, timestamp));
         enqueueDrawing();

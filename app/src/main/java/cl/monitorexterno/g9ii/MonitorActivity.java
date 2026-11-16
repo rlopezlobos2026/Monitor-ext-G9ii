@@ -14,6 +14,10 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
@@ -47,7 +51,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class MonitorActivity extends Activity {
     private static final int IMPORT_LUT = 1;
-    private static final String USB_PERMISSION = "cl.monitorexterno.g9ii.monitor.v04.USB_PERMISSION";
+    private static final String USB_PERMISSION = "cl.monitorexterno.g9ii.monitor.v05.USB_PERMISSION";
     private static final int INK = 0xfff1f8f6;
     private static final int MINT = 0xffacf0dc;
     private final StringBuilder diagnostic = new StringBuilder();
@@ -71,7 +75,24 @@ public final class MonitorActivity extends Activity {
     private TextView cameraBadge;
     private View cameraBorder;
     private Button cameraRecord;
+    private Button touchFocusButton;
+    private Button levelButton;
+    private TextView previewPause;
     private boolean touchFocus;
+    private long touchFocusRequest;
+    private SensorManager sensors;
+    private Sensor levelSensor;
+    private boolean levelEnabled;
+    private boolean activityResumed;
+    private boolean previewPaused;
+    private final SensorEventListener levelListener = new SensorEventListener() {
+        @Override public void onSensorChanged(SensorEvent event) {
+            if (image == null || getDisplay() == null) return;
+            image.setLevel(PhoneLevel.roll(event.values[0], event.values[1], getDisplay().getRotation()));
+        }
+
+        @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+    };
     private CameraControls.RecordingState cameraState = CameraControls.RecordingState.UNKNOWN;
     private Boolean requestedRecording;
     private boolean recordingUnverified;
@@ -121,10 +142,17 @@ public final class MonitorActivity extends Activity {
         int quality = getPreferences(MODE_PRIVATE).getInt("phoneQuality", 0);
         PhoneVideoQuality[] qualities = PhoneVideoQuality.values();
         if (quality >= 0 && quality < qualities.length) phoneQuality = qualities[quality];
+        sensors = getSystemService(SensorManager.class);
+        if (sensors != null) {
+            levelSensor = sensors.getDefaultSensor(Sensor.TYPE_GRAVITY);
+            if (levelSensor == null) levelSensor = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        }
+        levelEnabled = levelSensor != null && getPreferences(MODE_PRIVATE).getBoolean("phoneLevel", true);
+        touchFocus = getPreferences(MODE_PRIVATE).getBoolean("touchFocus", true);
         buildUi();
         immerse();
         registerReceiver(permissionReceiver, new IntentFilter(USB_PERMISSION), Context.RECEIVER_NOT_EXPORTED);
-        diagnostic.append("Monitor Lumix USB 0.4\n").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
+        diagnostic.append("Monitor Lumix USB 0.5\n").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
                 .append(" | Android ").append(Build.VERSION.RELEASE).append('\n');
         status.setText("USB · Sin cámara");
         showNotice("Conecta la Lumix por USB‑C, selecciona PC(Tether) y toca Conectar.");
@@ -165,6 +193,18 @@ public final class MonitorActivity extends Activity {
             }
         });
 
+        LinearLayout monitorActions = new LinearLayout(this);
+        monitorActions.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams recordPosition = new FrameLayout.LayoutParams(-2, dp(46), Gravity.TOP | Gravity.END);
+        recordPosition.setMargins(0, dp(5), dp(12), 0);
+        header.addView(monitorActions, recordPosition);
+        touchFocusButton = headerTool(monitorActions, "AF táctil", this::toggleTouchFocus);
+        touchFocusButton.setEnabled(false);
+        updateTouchFocus();
+        levelButton = headerTool(monitorActions, "Nivel", this::toggleLevel);
+        levelButton.setEnabled(levelSensor != null);
+        updateLevelButton();
+
         recordSwitch = new Switch(this);
         recordSwitch.setText(phoneQualityLabel());
         recordSwitch.setTextSize(13);
@@ -180,9 +220,8 @@ public final class MonitorActivity extends Activity {
             if (checked) startRecorder();
             else stopRecorder();
         });
-        FrameLayout.LayoutParams recordPosition = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.END);
-        recordPosition.setMargins(0, dp(6), dp(14), 0);
-        header.addView(recordSwitch, recordPosition);
+        recordSwitch.setContentDescription("Grabar la señal USB en el teléfono, con las ayudas de la app fuera del MP4");
+        monitorActions.addView(recordSwitch, new LinearLayout.LayoutParams(-2, -1));
 
         cameraBorder = new View(this);
         GradientDrawable redBorder = panel(Color.TRANSPARENT, 0);
@@ -199,7 +238,9 @@ public final class MonitorActivity extends Activity {
         badgePosition.topMargin = dp(52);
         root.addView(indicators, badgePosition);
         cameraBadge = recordingBadge(indicators, 0xffc31933);
-        phoneBadge = recordingBadge(indicators, 0xff164957);
+        phoneBadge = recordingBadge(indicators, 0xffc31933);
+        previewPause = recordingBadge(indicators, 0xff604000);
+        previewPause.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
 
         notice = label(15, INK);
         notice.setGravity(Gravity.CENTER);
@@ -287,8 +328,8 @@ public final class MonitorActivity extends Activity {
         GestureDetector taps = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onDown(MotionEvent event) { return true; }
             @Override public boolean onSingleTapConfirmed(MotionEvent event) {
-                if (touchFocus && frameSeen && image.isPictureAt(event.getX(), event.getY())) {
-                    autofocus();
+                if (touchFocus && frameSeen && !previewPaused && image.isPictureAt(event.getX(), event.getY())) {
+                    touchAutofocus(event.getX(), event.getY());
                     return true;
                 }
                 return image.performClick();
@@ -338,6 +379,15 @@ public final class MonitorActivity extends Activity {
         position.setMargins(dp(2), 0, dp(2), 0);
         group.addView(button, position);
         button.setOnClickListener(view -> action.run());
+        return button;
+    }
+
+    private Button headerTool(LinearLayout group, String title, Runnable action) {
+        Button button = tool(group, title, action);
+        LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(-2, dp(44));
+        position.rightMargin = dp(5);
+        button.setPadding(dp(7), 0, dp(7), 0);
+        button.setLayoutParams(position);
         return button;
     }
 
@@ -661,7 +711,7 @@ public final class MonitorActivity extends Activity {
 
     private void cameraMenu() {
         CameraControls.Setting[] settings = CameraControls.Setting.values();
-        String[] names = new String[settings.length + 7];
+        String[] names = new String[settings.length + 8];
         for (int i = 0; i < settings.length; i++) names[i] = settings[i].name;
         names[settings.length] = marked("AF al tocar · área activa", touchFocus);
         names[settings.length + 1] = "AF ahora · área activa";
@@ -670,6 +720,7 @@ public final class MonitorActivity extends Activity {
         names[settings.length + 4] = "LUT internas de la cámara";
         names[settings.length + 5] = "Consultar capacidades USB";
         names[settings.length + 6] = "Ajustar foco manual";
+        names[settings.length + 7] = "Calidad de video en la Lumix";
         menu("Cámara Lumix", names, index -> {
             if (index == settings.length + 4) {
                 new AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
@@ -694,12 +745,7 @@ public final class MonitorActivity extends Activity {
             }
             switch (index - settings.length) {
                 case 0:
-                    touchFocus = !touchFocus;
-                    image.setContentDescription(touchFocus
-                            ? "Video. Toca para AF en el área activa. Mantén pulsado para mostrar los controles."
-                            : "Imagen del monitor, toca para mostrar los controles");
-                    toast(touchFocus ? "Toca el video para activar el AF en el área de la Lumix. Mantén pulsado para los controles."
-                            : "Toque para mostrar los controles.");
+                    toggleTouchFocus();
                     break;
                 case 1: autofocus(); break;
                 case 2:
@@ -710,6 +756,9 @@ public final class MonitorActivity extends Activity {
                 case 3: cameraRecordingMenu(); break;
                 case 5: if (!preview.inventory()) queueBusy(); break;
                 case 6: manualFocusMenu(); break;
+                case 7:
+                    if (!preview.queryMovieQuality()) queueBusy();
+                    break;
                 default: break;
             }
         });
@@ -781,7 +830,57 @@ public final class MonitorActivity extends Activity {
     }
 
     private void autofocus() {
-        if (preview != null && frameSeen && !preview.autoFocus()) queueBusy();
+        if (preview != null && frameSeen && !preview.autoFocus(0)) queueBusy();
+    }
+
+    private void touchAutofocus(float x, float y) {
+        if (preview == null) return;
+        long request = ++touchFocusRequest;
+        image.showFocusTap(x, y);
+        if (!preview.autoFocus(request)) {
+            image.showFocusResult(false);
+            queueBusy();
+        }
+    }
+
+    private void toggleTouchFocus() {
+        touchFocus = !touchFocus;
+        getPreferences(MODE_PRIVATE).edit().putBoolean("touchFocus", touchFocus).apply();
+        updateTouchFocus();
+        if (touchFocus) toast("Toca el video para activar el AF en el área que usa la Lumix. Mantén pulsado para los controles.");
+        else image.clearFocusTap();
+    }
+
+    private void updateTouchFocus() {
+        touchFocusButton.setTextColor(touchFocus ? MINT : INK);
+        touchFocusButton.setSelected(touchFocus);
+        touchFocusButton.setContentDescription(touchFocus ? "Desactivar AF táctil" : "Activar AF táctil");
+        image.setContentDescription(touchFocus
+                ? "Video. Toca para activar el AF en el área de la Lumix. Mantén pulsado para mostrar u ocultar controles."
+                : "Video. Toca para mostrar u ocultar controles.");
+    }
+
+    private void toggleLevel() {
+        levelEnabled = !levelEnabled;
+        getPreferences(MODE_PRIVATE).edit().putBoolean("phoneLevel", levelEnabled).apply();
+        updateLevelButton();
+        updateLevelSensor();
+    }
+
+    private void updateLevelButton() {
+        levelButton.setTextColor(levelEnabled ? MINT : INK);
+        levelButton.setSelected(levelEnabled);
+        levelButton.setContentDescription(levelEnabled ? "Ocultar nivel del teléfono" : "Mostrar nivel del teléfono");
+    }
+
+    private void updateLevelSensor() {
+        if (levelSensor == null) return;
+        sensors.unregisterListener(levelListener);
+        if (levelEnabled && activityResumed) {
+            sensors.registerListener(levelListener, levelSensor, SensorManager.SENSOR_DELAY_UI);
+        } else {
+            image.setLevel(Float.NaN);
+        }
     }
 
     private void queueBusy() {
@@ -865,7 +964,7 @@ public final class MonitorActivity extends Activity {
                     : pending ? "CÁMARA · esperando confirmación" : "CÁMARA · estado REC sin confirmar");
         }
         phoneBadge.setVisibility(phoneActive ? View.VISIBLE : View.GONE);
-        if (phoneActive) phoneBadge.setText("● TELÉFONO  " + clock(now - phoneStartedAt) + "  " + phoneRecordingSize);
+        if (phoneActive) phoneBadge.setText("● REC TELÉFONO  " + clock(now - phoneStartedAt) + "  " + phoneRecordingSize);
         cameraRecord.setText(cameraActive ? "STOP" : "REC");
         cameraRecord.setContentDescription(cameraActive ? "Detener grabación de cámara" : "Grabar en la cámara");
         cameraRecord.setEnabled(frameSeen && !pending);
@@ -955,6 +1054,7 @@ public final class MonitorActivity extends Activity {
         connect.setContentDescription("Desconectar la cámara USB");
         connect.setEnabled(true);
         recordSwitch.setEnabled(false);
+        setPreviewPaused(null);
         preview = new LivePreview(usbManager, camera, new LivePreview.Listener() {
             @Override public void onPhase(String message) {
                 ui.post(() -> { if (!destroyed) showNotice(message); });
@@ -963,7 +1063,7 @@ public final class MonitorActivity extends Activity {
             @Override public void onFrame(Bitmap frame, double fps) {
                 if (destroyed) return;
                 PhoneRecorder active = recorder;
-                if (active != null) active.submit(frame, System.nanoTime());
+                if (active != null) active.submitCleanFrame(frame, System.nanoTime());
                 VideoScopes.Mode mode = image.scope;
                 long now = SystemClock.elapsedRealtime();
                 Bitmap chart = null;
@@ -973,6 +1073,37 @@ public final class MonitorActivity extends Activity {
                 }
                 newest.set(new VideoFrame(frame, chart, mode, fps));
                 queueDraw();
+            }
+
+            @Override public void onAutofocusResult(long request, int response) {
+                ui.post(() -> {
+                    if (destroyed || !frameSeen) return;
+                    boolean accepted = response == PtpConnection.OK;
+                    String result = accepted ? "AF en el área activa · orden aceptada"
+                            : "AF en el área activa · respuesta " + PtpConnection.hex(response);
+                    if (request == 0) toast(result);
+                    else {
+                        log(result);
+                        if (touchFocus && request == touchFocusRequest) image.showFocusResult(accepted);
+                    }
+                });
+            }
+
+            @Override public void onPreviewPause(String reason) {
+                ui.post(() -> { if (!destroyed) setPreviewPaused(reason); });
+            }
+
+            @Override public void onMovieQuality(String detail) {
+                ui.post(() -> {
+                    if (destroyed || !frameSeen) return;
+                    log(detail);
+                    new AlertDialog.Builder(MonitorActivity.this, android.R.style.Theme_Material_Dialog_Alert)
+                            .setTitle("Calidad de video en la Lumix")
+                            .setMessage("Por ahora, elige FHD, UHD y los fps en la Lumix, en Calidad grab. "
+                                    + "La consulta USB quedó en Más → Copiar diagnóstico.")
+                            .setPositiveButton("Cerrar", null)
+                            .show();
+                });
             }
 
             @Override public void onFormats(List<UsbVideoFormat> formats, UsbVideoFormat current) {
@@ -1042,6 +1173,8 @@ public final class MonitorActivity extends Activity {
                     preview = null;
                     if (destroyed) return;
                     frameSeen = false;
+                    setPreviewPaused(null);
+                    image.clearFocusTap();
                     pendingList = null;
                     adjustment.clear();
                     setQuickControlsEnabled(false);
@@ -1063,6 +1196,18 @@ public final class MonitorActivity extends Activity {
             }
         });
         new Thread(preview, "Lumix-USB").start();
+    }
+
+    private void setPreviewPaused(String reason) {
+        previewPaused = reason != null;
+        if (previewPaused) {
+            previewPause.setText(reason);
+            log(reason);
+            image.clearFocusTap();
+        }
+        previewPause.setVisibility(previewPaused ? View.VISIBLE : View.GONE);
+        touchFocusButton.setEnabled(frameSeen && !previewPaused);
+        recordSwitch.setEnabled(frameSeen && (!previewPaused || recorder != null));
     }
 
     private void queueDraw() {
@@ -1087,6 +1232,7 @@ public final class MonitorActivity extends Activity {
             }
             if (!frameSeen) {
                 frameSeen = true;
+                touchFocusButton.setEnabled(true);
                 notice.setVisibility(View.GONE);
                 if (recorder == null) recordSwitch.setEnabled(true);
                 updateRecordingDisplay();
@@ -1102,7 +1248,7 @@ public final class MonitorActivity extends Activity {
     private double shownFps;
 
     private void startRecorder() {
-        if (!frameSeen || sourceWidth < 2 || sourceHeight < 2 || recorder != null) {
+        if (!frameSeen || previewPaused || sourceWidth < 2 || sourceHeight < 2 || recorder != null) {
             setRecordingSwitch(false);
             return;
         }
@@ -1131,7 +1277,7 @@ public final class MonitorActivity extends Activity {
                     phoneStartedAt = -1;
                     updateRecordingDisplay();
                     setRecordingSwitch(false);
-                    recordSwitch.setEnabled(frameSeen);
+                    recordSwitch.setEnabled(frameSeen && !previewPaused);
                     toast(message);
                 });
             }
@@ -1174,6 +1320,20 @@ public final class MonitorActivity extends Activity {
         clipboard.setPrimaryClip(ClipData.newPlainText("Diagnóstico Monitor Lumix",
                 status.getText() + "\n" + diagnostic));
         Toast.makeText(this, "Diagnóstico copiado", Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        activityResumed = true;
+        updateLevelSensor();
+    }
+
+    @Override
+    protected void onPause() {
+        activityResumed = false;
+        updateLevelSensor();
+        super.onPause();
     }
 
     @Override
