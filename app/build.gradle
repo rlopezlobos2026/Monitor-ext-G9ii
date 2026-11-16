@@ -8,7 +8,7 @@ android {
 
     defaultConfig {
         applicationId 'cl.monitorexterno.g9ii'
-        minSdk 24
+        minSdk 33
         targetSdk 34
         versionCode 1
         versionName '0.1'

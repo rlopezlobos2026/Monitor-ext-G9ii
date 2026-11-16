@@ -118,11 +118,7 @@ public final class MonitorActivity extends Activity {
                 .append(" | Android ").append(Build.VERSION.RELEASE).append('\n');
         showStatus("Conecta la Lumix, selecciona PC(Tether) en la cámara y toca Conectar.");
         IntentFilter filter = new IntentFilter(USB_PERMISSION);
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(permissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(permissionReceiver, filter);
-        }
+        registerReceiver(permissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
     }
 
     private void findCamera() {
