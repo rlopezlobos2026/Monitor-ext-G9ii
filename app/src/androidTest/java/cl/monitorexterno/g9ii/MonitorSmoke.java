@@ -127,7 +127,7 @@ public final class MonitorSmoke extends Instrumentation {
                     value.invoke(monitor, CameraControls.Setting.WHITE_BALANCE, 0x8010);
                     value.invoke(monitor, CameraControls.Setting.TEMPERATURE, 5600);
                     focal.invoke(monitor, 125.0);
-                    connect.setText("Desconectar");
+                    connect.setText("Salir USB");
                     notice.setVisibility(View.GONE);
                     image.show(frame, null, VideoScopes.Mode.OFF);
                     panel.open(CameraControls.Setting.TEMPERATURE);
@@ -140,6 +140,11 @@ public final class MonitorSmoke extends Instrumentation {
             SeekBar slider = (SeekBar) field(panel, "slider");
             require(slider.isShown() && slider.getWidth() >= 70 && slider.getMax() == 75,
                     "Deslizador visible y ajustable");
+            android.widget.TextView heading = (android.widget.TextView) field(panel, "heading");
+            runOnMainSync(() -> slider.setProgress(35));
+            waitForIdleSync();
+            require("Kelvin\n6000 K".contentEquals(heading.getText()) && heading.getLineCount() == 2,
+                    "El valor elegido se lee junto al deslizador");
             require(tools.getWidth() == image.getWidth() && connect.getWidth() > 0 && connect.isShown(),
                     "Barra ajustada a la pantalla");
             Bitmap screenshot = getUiAutomation().takeScreenshot();

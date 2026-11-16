@@ -130,7 +130,7 @@ final class AdjustmentPanel extends LinearLayout {
         boolean canEdit = available && !waiting;
         int index = slider.getProgress();
         int value = available ? choices.values[Math.min(index, choices.values.length - 1)] : 0;
-        heading.setText(setting.name + "\n" + (available ? setting.label(value) : "—"));
+        heading.setText(MonitorActivity.quickLabel(setting) + "\n" + (available ? setting.label(value) : "—"));
         slider.setVisibility(available ? VISIBLE : INVISIBLE);
         smaller.setVisibility(available ? VISIBLE : GONE);
         larger.setVisibility(available ? VISIBLE : GONE);

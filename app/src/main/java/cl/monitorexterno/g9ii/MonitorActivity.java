@@ -251,7 +251,7 @@ public final class MonitorActivity extends Activity {
         tool(actions, "Cámara", this::cameraMenu);
         tool(actions, "Vista", this::viewMenu);
         tool(actions, "Foco", this::focusMenu);
-        tool(actions, "Exposición", this::exposureMenu);
+        tool(actions, "Exponer", this::exposureMenu);
         tool(actions, "Guías", this::guideMenu);
         tool(actions, "Scopes", this::scopeMenu);
         tool(actions, "Color", this::colorMenu);
@@ -393,7 +393,7 @@ public final class MonitorActivity extends Activity {
                 : "Distancia focal óptica " + value);
     }
 
-    private static String quickLabel(CameraControls.Setting setting) {
+    static String quickLabel(CameraControls.Setting setting) {
         switch (setting) {
             case ISO: return "ISO";
             case SHUTTER: return "Obturación";
@@ -951,7 +951,8 @@ public final class MonitorActivity extends Activity {
         lastScopeDraw = 0;
         sourceWidth = 0;
         sourceHeight = 0;
-        connect.setText("Desconectar");
+        connect.setText("Salir USB");
+        connect.setContentDescription("Desconectar la cámara USB");
         connect.setEnabled(true);
         recordSwitch.setEnabled(false);
         preview = new LivePreview(usbManager, camera, new LivePreview.Listener() {
@@ -1053,6 +1054,7 @@ public final class MonitorActivity extends Activity {
                     stopRecorder();
                     controls(true);
                     connect.setText("Conectar");
+                    connect.setContentDescription("Conectar la cámara USB");
                     connect.setEnabled(true);
                     recordSwitch.setEnabled(false);
                     status.setText("USB · Sin señal");
