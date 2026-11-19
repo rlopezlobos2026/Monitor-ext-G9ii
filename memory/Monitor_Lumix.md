@@ -17,6 +17,8 @@
 
 ## Resultados observados con equipo físico
 
+El 19 de noviembre de 2026, Rodrigo confirmó que probó la aplicación en un **Samsung Galaxy S23 Ultra** y que funcionó. Se registra este resultado como prueba física adicional de compatibilidad.
+
 - Equipo comprobado: Panasonic **DC-G9M2** (firmware 2.7 en la prueba documentada) y **Galaxy S24 Ultra SM-S928B**, Android 17, USB-C directo en PC(Tether). La app requiere Android 13+ y USB host. Se verificaron controles de exposición y balance, REC/STOP de cámara, captura de foto aceptada y guardado de MP4 en el teléfono. La G9 II configurada en 4K a aproximadamente 23,98 fps entregó una vista previa típica de **640 × 360 a 30 fps**. También aparecieron fotogramas 640 × 432 y 640 × 480.
 - La Lumix anunció por PTP **1280 × 960**, **960 × 720** y **640 × 480**, todos a 30 fps nominales y con parámetros 450, 250 y 32. La lectura del modo activo informó 320 × 240 a 30 fps, parámetro 0. El tamaño efectivo se toma del JPEG recibido. En ese registro no aparece una orden de cambio al modo más alto. El enlace reportó paquetes bulk de 1024 bytes en ambas direcciones, coherentes con SuperSpeed.
 - Las cebras del monitor se mantienen como ayuda visual. Rodrigo confirmó que el MP4 sale limpio al apagar las cebras propias de la Lumix, porque la app recibe esas marcas incorporadas cuando la cámara las entrega en la señal.
