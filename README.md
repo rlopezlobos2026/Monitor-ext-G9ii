@@ -4,6 +4,8 @@ Monitor Android para la Panasonic Lumix G9 II por USB‑C directo. La prueba 0.1
 confirmó 640 × 360 y 30 fps recibidos con firmware 2.7 y un Galaxy S24 Ultra
 (SM-S928B) en Android 17. Esta distribución requiere Android 13 o superior y USB host (OTG).
 
+También se probó en un **Samsung Galaxy S23 Ultra** y funcionó, según la confirmación de Rodrigo.
+
 ## Usar el monitor
 
 1. Enciende la Lumix, conecta un cable USB‑C de datos y selecciona `PC(Tether)`.
